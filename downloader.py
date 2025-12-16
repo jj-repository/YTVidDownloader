@@ -7,7 +7,7 @@ import subprocess
 import threading
 import re
 from pathlib import Path
-from PIL import Image, ImageTk
+from PIL import Image, ImageTk, ImageDraw, ImageFont
 import tempfile
 import time
 
@@ -97,76 +97,62 @@ class YouTubeDownloader:
         self.url_entry = ttk.Entry(main_frame, width=60)
         self.url_entry.grid(row=1, column=0, columnspan=2, pady=(0, 20))
 
-        # Create a frame to hold video quality and audio options side by side
-        options_frame = ttk.Frame(main_frame)
-        options_frame.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(10, 0))
-
-        # Video Quality section (left side)
-        quality_frame = ttk.Frame(options_frame)
-        quality_frame.grid(row=0, column=0, sticky=(tk.N, tk.W), padx=(0, 40))
-
-        ttk.Label(quality_frame, text="Video Quality:", font=('Arial', 11, 'bold')).grid(row=0, column=0, sticky=tk.W, pady=(0, 5))
+        # Video Quality section
+        ttk.Label(main_frame, text="Video Quality:", font=('Arial', 11, 'bold')).grid(row=2, column=0, sticky=tk.W, pady=(10, 5))
 
         self.quality_var = tk.StringVar(value="none")
 
-        ttk.Radiobutton(quality_frame, text="1440p (2560x1440)", variable=self.quality_var, value="1440").grid(row=1, column=0, sticky=tk.W, padx=(20, 0))
-        ttk.Radiobutton(quality_frame, text="1080p (1920x1080)", variable=self.quality_var, value="1080").grid(row=2, column=0, sticky=tk.W, padx=(20, 0))
-        ttk.Radiobutton(quality_frame, text="720p (1280x720)", variable=self.quality_var, value="720").grid(row=3, column=0, sticky=tk.W, padx=(20, 0))
-        ttk.Radiobutton(quality_frame, text="480p (854x480)", variable=self.quality_var, value="480").grid(row=4, column=0, sticky=tk.W, padx=(20, 0))
-        ttk.Radiobutton(quality_frame, text="360p (640x360)", variable=self.quality_var, value="360").grid(row=5, column=0, sticky=tk.W, padx=(20, 0))
-        ttk.Radiobutton(quality_frame, text="240p (426x240)", variable=self.quality_var, value="240").grid(row=6, column=0, sticky=tk.W, padx=(20, 0))
-        ttk.Radiobutton(quality_frame, text="None (Audio only)", variable=self.quality_var, value="none").grid(row=7, column=0, sticky=tk.W, padx=(20, 0))
+        ttk.Radiobutton(main_frame, text="1440p (2560x1440)", variable=self.quality_var, value="1440").grid(row=3, column=0, sticky=tk.W, padx=(20, 0))
+        ttk.Radiobutton(main_frame, text="1080p (1920x1080)", variable=self.quality_var, value="1080").grid(row=4, column=0, sticky=tk.W, padx=(20, 0))
+        ttk.Radiobutton(main_frame, text="720p (1280x720)", variable=self.quality_var, value="720").grid(row=5, column=0, sticky=tk.W, padx=(20, 0))
+        ttk.Radiobutton(main_frame, text="480p (854x480)", variable=self.quality_var, value="480").grid(row=6, column=0, sticky=tk.W, padx=(20, 0))
+        ttk.Radiobutton(main_frame, text="360p (640x360)", variable=self.quality_var, value="360").grid(row=7, column=0, sticky=tk.W, padx=(20, 0))
+        ttk.Radiobutton(main_frame, text="240p (426x240)", variable=self.quality_var, value="240").grid(row=8, column=0, sticky=tk.W, padx=(20, 0))
+        ttk.Radiobutton(main_frame, text="None (Audio only)", variable=self.quality_var, value="none").grid(row=9, column=0, sticky=tk.W, padx=(20, 0))
 
-        # Audio Options section (right side)
-        audio_frame = ttk.Frame(options_frame)
-        audio_frame.grid(row=0, column=1, sticky=(tk.N, tk.W))
-
-        ttk.Label(audio_frame, text="Audio Options:", font=('Arial', 11, 'bold')).grid(row=0, column=0, sticky=tk.W, pady=(0, 5))
-
-        self.audio_only_var = tk.BooleanVar()
-        ttk.Checkbutton(audio_frame, text="Extract audio only (M4A format)", variable=self.audio_only_var,
-                       command=self.toggle_audio_only).grid(row=1, column=0, sticky=tk.W, padx=(20, 0))
-
-        ttk.Separator(main_frame, orient='horizontal').grid(row=3, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=15)
+        ttk.Separator(main_frame, orient='horizontal').grid(row=10, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=15)
 
         # Trimming section
-        ttk.Label(main_frame, text="Trim Video:", font=('Arial', 11, 'bold')).grid(row=4, column=0, sticky=tk.W, pady=(0, 3))
+        ttk.Label(main_frame, text="Trim Video:", font=('Arial', 11, 'bold')).grid(row=11, column=0, sticky=tk.W, pady=(0, 3))
 
         self.trim_enabled_var = tk.BooleanVar()
         trim_check = ttk.Checkbutton(main_frame, text="Enable video trimming", variable=self.trim_enabled_var,
-                                     command=self.toggle_trim).grid(row=5, column=0, sticky=tk.W, padx=(20, 0))
+                                     command=self.toggle_trim).grid(row=12, column=0, sticky=tk.W, padx=(20, 0))
 
         self.fetch_duration_btn = ttk.Button(main_frame, text="Fetch Video Duration", command=self.fetch_duration_clicked, state='disabled')
-        self.fetch_duration_btn.grid(row=6, column=0, sticky=tk.W, padx=(20, 0), pady=(3, 5))
+        self.fetch_duration_btn.grid(row=13, column=0, sticky=tk.W, padx=(20, 0), pady=(3, 5))
 
         self.duration_label = ttk.Label(main_frame, text="Total Duration: --:--:--", foreground="gray")
-        self.duration_label.grid(row=7, column=0, sticky=tk.W, padx=(20, 0))
+        self.duration_label.grid(row=14, column=0, sticky=tk.W, padx=(20, 0))
 
         # Preview frame to hold both previews side by side
         preview_container = ttk.Frame(main_frame)
-        preview_container.grid(row=8, column=0, sticky=tk.W, padx=(40, 0), pady=(10, 5))
+        preview_container.grid(row=15, column=0, sticky=tk.W, padx=(40, 0), pady=(10, 5))
 
         # Start time preview
         start_preview_frame = ttk.Frame(preview_container)
         start_preview_frame.grid(row=0, column=0, padx=(0, 20))
 
         ttk.Label(start_preview_frame, text="Start Time:", font=('Arial', 9)).pack()
-        self.start_preview_label = tk.Label(start_preview_frame, width=80, height=22, bg='gray20', fg='white',
-                                           text='Preview', relief='sunken', font=('Arial', 7))
+        self.start_preview_label = tk.Label(start_preview_frame, bg='gray20', fg='white', relief='sunken')
         self.start_preview_label.pack(pady=(5, 0))
+
+        # Create placeholder image
+        self.placeholder_image = self.create_placeholder_image(240, 135, "Preview")
+        self.start_preview_label.config(image=self.placeholder_image)
 
         # End time preview
         end_preview_frame = ttk.Frame(preview_container)
         end_preview_frame.grid(row=0, column=1)
 
         ttk.Label(end_preview_frame, text="End Time:", font=('Arial', 9)).pack()
-        self.end_preview_label = tk.Label(end_preview_frame, width=80, height=22, bg='gray20', fg='white',
-                                         text='Preview', relief='sunken', font=('Arial', 7))
+        self.end_preview_label = tk.Label(end_preview_frame, bg='gray20', fg='white', relief='sunken')
         self.end_preview_label.pack(pady=(5, 0))
+        self.end_preview_label.config(image=self.placeholder_image)
 
         # Start time slider and entry
         start_control_frame = ttk.Frame(main_frame)
-        start_control_frame.grid(row=9, column=0, sticky=tk.W, padx=(40, 0), pady=(2, 2))
+        start_control_frame.grid(row=16, column=0, sticky=tk.W, padx=(40, 0), pady=(2, 2))
 
         self.start_time_var = tk.DoubleVar(value=0)
         self.start_slider = ttk.Scale(start_control_frame, from_=0, to=100, variable=self.start_time_var,
@@ -182,7 +168,7 @@ class YouTubeDownloader:
 
         # End time slider and entry
         end_control_frame = ttk.Frame(main_frame)
-        end_control_frame.grid(row=10, column=0, sticky=tk.W, padx=(40, 0), pady=(2, 2))
+        end_control_frame.grid(row=17, column=0, sticky=tk.W, padx=(40, 0), pady=(2, 2))
 
         self.end_time_var = tk.DoubleVar(value=100)
         self.end_slider = ttk.Scale(end_control_frame, from_=0, to=100, variable=self.end_time_var,
@@ -198,12 +184,12 @@ class YouTubeDownloader:
 
         # Trim duration display
         self.trim_duration_label = ttk.Label(main_frame, text="Selected Duration: 00:00:00", foreground="green", font=('Arial', 9, 'bold'))
-        self.trim_duration_label.grid(row=11, column=0, sticky=tk.W, padx=(40, 0), pady=(3, 0))
+        self.trim_duration_label.grid(row=18, column=0, sticky=tk.W, padx=(40, 0), pady=(3, 0))
 
-        ttk.Separator(main_frame, orient='horizontal').grid(row=12, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=15)
+        ttk.Separator(main_frame, orient='horizontal').grid(row=19, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=15)
 
         path_frame = ttk.Frame(main_frame)
-        path_frame.grid(row=13, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
+        path_frame.grid(row=20, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
 
         ttk.Label(path_frame, text="Save to:").pack(side=tk.LEFT)
         self.path_label = ttk.Label(path_frame, text=self.download_path, foreground="blue")
@@ -212,7 +198,7 @@ class YouTubeDownloader:
         ttk.Button(path_frame, text="Open Folder", command=self.open_download_folder).pack(side=tk.LEFT)
 
         button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=14, column=0, columnspan=2, pady=(0, 10))
+        button_frame.grid(row=21, column=0, columnspan=2, pady=(0, 10))
 
         self.download_btn = ttk.Button(button_frame, text="Download", command=self.start_download)
         self.download_btn.pack(side=tk.LEFT, padx=(0, 10))
@@ -221,17 +207,35 @@ class YouTubeDownloader:
         self.stop_btn.pack(side=tk.LEFT)
 
         self.progress = ttk.Progressbar(main_frame, mode='determinate', length=560, maximum=100)
-        self.progress.grid(row=15, column=0, columnspan=2)
+        self.progress.grid(row=22, column=0, columnspan=2)
 
         self.progress_label = ttk.Label(main_frame, text="0%", foreground="blue")
-        self.progress_label.grid(row=16, column=0, columnspan=2, pady=(5, 0))
+        self.progress_label.grid(row=23, column=0, columnspan=2, pady=(5, 0))
 
         self.status_label = ttk.Label(main_frame, text="Ready", foreground="green")
-        self.status_label.grid(row=17, column=0, columnspan=2, pady=(10, 0))
+        self.status_label.grid(row=24, column=0, columnspan=2, pady=(10, 0))
 
-    def toggle_audio_only(self):
-        if self.audio_only_var.get():
-            self.quality_var.set("none")
+    def create_placeholder_image(self, width, height, text):
+        """Create a placeholder image with text"""
+        img = Image.new('RGB', (width, height), color='#2d2d2d')
+        draw = ImageDraw.Draw(img)
+
+        # Draw text in center
+        try:
+            # Try to use a default font, fall back to default if not available
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 16)
+        except:
+            font = ImageFont.load_default()
+
+        # Get text bounding box to center it
+        bbox = draw.textbbox((0, 0), text, font=font)
+        text_width = bbox[2] - bbox[0]
+        text_height = bbox[3] - bbox[1]
+
+        position = ((width - text_width) // 2, (height - text_height) // 2)
+        draw.text(position, text, fill='white', font=font)
+
+        return ImageTk.PhotoImage(img)
 
     def seconds_to_hms(self, seconds):
         """Convert seconds to HH:MM:SS format"""
@@ -513,7 +517,7 @@ class YouTubeDownloader:
         try:
             # Load and resize image
             img = Image.open(image_path)
-            img.thumbnail((80, 22), Image.Resampling.LANCZOS)
+            img.thumbnail((240, 135), Image.Resampling.LANCZOS)
 
             # Convert to PhotoImage
             photo = ImageTk.PhotoImage(img)
@@ -595,9 +599,9 @@ class YouTubeDownloader:
 
     def download(self, url):
         try:
-            audio_only = self.audio_only_var.get()
             quality = self.quality_var.get()
             trim_enabled = self.trim_enabled_var.get()
+            audio_only = (quality == "none")
 
             self.update_status("Starting download...", "blue")
 
