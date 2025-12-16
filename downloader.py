@@ -100,7 +100,7 @@ class YouTubeDownloader:
         # Video Quality section
         ttk.Label(main_frame, text="Video Quality:", font=('Arial', 11, 'bold')).grid(row=2, column=0, sticky=tk.W, pady=(10, 5))
 
-        self.quality_var = tk.StringVar(value="none")
+        self.quality_var = tk.StringVar(value="480")
 
         ttk.Radiobutton(main_frame, text="1440p (2560x1440)", variable=self.quality_var, value="1440").grid(row=3, column=0, sticky=tk.W, padx=(20, 0))
         ttk.Radiobutton(main_frame, text="1080p (1920x1080)", variable=self.quality_var, value="1080").grid(row=4, column=0, sticky=tk.W, padx=(20, 0))
