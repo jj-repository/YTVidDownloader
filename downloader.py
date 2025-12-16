@@ -15,9 +15,9 @@ class YouTubeDownloader:
     def __init__(self, root):
         self.root = root
         self.root.title("YTVidDownloader")
-        self.root.geometry("600x750")
+        self.root.geometry("1100x1200")
         self.root.resizable(True, True)
-        self.root.minsize(600, 650)
+        self.root.minsize(750, 600)
 
         self.download_path = str(Path.home() / "Downloads")
         self.current_process = None
@@ -85,7 +85,9 @@ class YouTubeDownloader:
         def _on_mousewheel(event):
             canvas.yview_scroll(int(-1*(event.delta/120)), "units")
 
+        # Bind mousewheel to canvas and frame for scrolling anywhere
         canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        scrollable_frame.bind_all("<MouseWheel>", _on_mousewheel)
 
         main_frame = ttk.Frame(scrollable_frame, padding="20")
         main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
@@ -95,95 +97,122 @@ class YouTubeDownloader:
         self.url_entry = ttk.Entry(main_frame, width=60)
         self.url_entry.grid(row=1, column=0, columnspan=2, pady=(0, 20))
 
-        ttk.Label(main_frame, text="Video Quality:", font=('Arial', 11, 'bold')).grid(row=2, column=0, sticky=tk.W, pady=(10, 5))
+        # Create a frame to hold video quality and audio options side by side
+        options_frame = ttk.Frame(main_frame)
+        options_frame.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(10, 0))
+
+        # Video Quality section (left side)
+        quality_frame = ttk.Frame(options_frame)
+        quality_frame.grid(row=0, column=0, sticky=(tk.N, tk.W), padx=(0, 40))
+
+        ttk.Label(quality_frame, text="Video Quality:", font=('Arial', 11, 'bold')).grid(row=0, column=0, sticky=tk.W, pady=(0, 5))
 
         self.quality_var = tk.StringVar(value="none")
 
-        ttk.Radiobutton(main_frame, text="1440p (2560x1440)", variable=self.quality_var, value="1440").grid(row=3, column=0, sticky=tk.W, padx=(20, 0))
-        ttk.Radiobutton(main_frame, text="1080p (1920x1080)", variable=self.quality_var, value="1080").grid(row=4, column=0, sticky=tk.W, padx=(20, 0))
-        ttk.Radiobutton(main_frame, text="720p (1280x720)", variable=self.quality_var, value="720").grid(row=5, column=0, sticky=tk.W, padx=(20, 0))
-        ttk.Radiobutton(main_frame, text="480p (854x480)", variable=self.quality_var, value="480").grid(row=6, column=0, sticky=tk.W, padx=(20, 0))
-        ttk.Radiobutton(main_frame, text="360p (640x360)", variable=self.quality_var, value="360").grid(row=7, column=0, sticky=tk.W, padx=(20, 0))
-        ttk.Radiobutton(main_frame, text="240p (426x240)", variable=self.quality_var, value="240").grid(row=8, column=0, sticky=tk.W, padx=(20, 0))
-        ttk.Radiobutton(main_frame, text="None (Audio only)", variable=self.quality_var, value="none").grid(row=9, column=0, sticky=tk.W, padx=(20, 0))
+        ttk.Radiobutton(quality_frame, text="1440p (2560x1440)", variable=self.quality_var, value="1440").grid(row=1, column=0, sticky=tk.W, padx=(20, 0))
+        ttk.Radiobutton(quality_frame, text="1080p (1920x1080)", variable=self.quality_var, value="1080").grid(row=2, column=0, sticky=tk.W, padx=(20, 0))
+        ttk.Radiobutton(quality_frame, text="720p (1280x720)", variable=self.quality_var, value="720").grid(row=3, column=0, sticky=tk.W, padx=(20, 0))
+        ttk.Radiobutton(quality_frame, text="480p (854x480)", variable=self.quality_var, value="480").grid(row=4, column=0, sticky=tk.W, padx=(20, 0))
+        ttk.Radiobutton(quality_frame, text="360p (640x360)", variable=self.quality_var, value="360").grid(row=5, column=0, sticky=tk.W, padx=(20, 0))
+        ttk.Radiobutton(quality_frame, text="240p (426x240)", variable=self.quality_var, value="240").grid(row=6, column=0, sticky=tk.W, padx=(20, 0))
+        ttk.Radiobutton(quality_frame, text="None (Audio only)", variable=self.quality_var, value="none").grid(row=7, column=0, sticky=tk.W, padx=(20, 0))
 
-        ttk.Separator(main_frame, orient='horizontal').grid(row=10, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=20)
+        # Audio Options section (right side)
+        audio_frame = ttk.Frame(options_frame)
+        audio_frame.grid(row=0, column=1, sticky=(tk.N, tk.W))
 
-        ttk.Label(main_frame, text="Audio Options:", font=('Arial', 11, 'bold')).grid(row=11, column=0, sticky=tk.W, pady=(0, 5))
+        ttk.Label(audio_frame, text="Audio Options:", font=('Arial', 11, 'bold')).grid(row=0, column=0, sticky=tk.W, pady=(0, 5))
 
         self.audio_only_var = tk.BooleanVar()
-        ttk.Checkbutton(main_frame, text="Extract audio only (M4A format)", variable=self.audio_only_var,
-                       command=self.toggle_audio_only).grid(row=12, column=0, sticky=tk.W, padx=(20, 0))
+        ttk.Checkbutton(audio_frame, text="Extract audio only (M4A format)", variable=self.audio_only_var,
+                       command=self.toggle_audio_only).grid(row=1, column=0, sticky=tk.W, padx=(20, 0))
 
-        ttk.Separator(main_frame, orient='horizontal').grid(row=13, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=15)
+        ttk.Separator(main_frame, orient='horizontal').grid(row=3, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=15)
 
         # Trimming section
-        ttk.Label(main_frame, text="Trim Video:", font=('Arial', 11, 'bold')).grid(row=14, column=0, sticky=tk.W, pady=(0, 3))
+        ttk.Label(main_frame, text="Trim Video:", font=('Arial', 11, 'bold')).grid(row=4, column=0, sticky=tk.W, pady=(0, 3))
 
         self.trim_enabled_var = tk.BooleanVar()
         trim_check = ttk.Checkbutton(main_frame, text="Enable video trimming", variable=self.trim_enabled_var,
-                                     command=self.toggle_trim).grid(row=15, column=0, sticky=tk.W, padx=(20, 0))
+                                     command=self.toggle_trim).grid(row=5, column=0, sticky=tk.W, padx=(20, 0))
 
         self.fetch_duration_btn = ttk.Button(main_frame, text="Fetch Video Duration", command=self.fetch_duration_clicked, state='disabled')
-        self.fetch_duration_btn.grid(row=16, column=0, sticky=tk.W, padx=(20, 0), pady=(3, 5))
+        self.fetch_duration_btn.grid(row=6, column=0, sticky=tk.W, padx=(20, 0), pady=(3, 5))
 
         self.duration_label = ttk.Label(main_frame, text="Total Duration: --:--:--", foreground="gray")
-        self.duration_label.grid(row=17, column=0, sticky=tk.W, padx=(20, 0))
+        self.duration_label.grid(row=7, column=0, sticky=tk.W, padx=(20, 0))
 
-        # Start time slider
-        start_frame = ttk.Frame(main_frame)
-        start_frame.grid(row=18, column=0, sticky=tk.W, padx=(40, 0), pady=(5, 0))
+        # Preview frame to hold both previews side by side
+        preview_container = ttk.Frame(main_frame)
+        preview_container.grid(row=8, column=0, sticky=tk.W, padx=(40, 0), pady=(10, 5))
 
-        ttk.Label(start_frame, text="Start Time:", font=('Arial', 9)).pack(side=tk.LEFT)
+        # Start time preview
+        start_preview_frame = ttk.Frame(preview_container)
+        start_preview_frame.grid(row=0, column=0, padx=(0, 20))
 
-        # Start time preview placeholder
-        self.start_preview_label = tk.Label(start_frame, width=120, height=68, bg='gray20', fg='white',
-                                           text='Preview\nwill appear\nhere', relief='sunken')
-        self.start_preview_label.pack(side=tk.LEFT, padx=(10, 0))
+        ttk.Label(start_preview_frame, text="Start Time:", font=('Arial', 9)).pack()
+        self.start_preview_label = tk.Label(start_preview_frame, width=80, height=22, bg='gray20', fg='white',
+                                           text='Preview', relief='sunken', font=('Arial', 7))
+        self.start_preview_label.pack(pady=(5, 0))
+
+        # End time preview
+        end_preview_frame = ttk.Frame(preview_container)
+        end_preview_frame.grid(row=0, column=1)
+
+        ttk.Label(end_preview_frame, text="End Time:", font=('Arial', 9)).pack()
+        self.end_preview_label = tk.Label(end_preview_frame, width=80, height=22, bg='gray20', fg='white',
+                                         text='Preview', relief='sunken', font=('Arial', 7))
+        self.end_preview_label.pack(pady=(5, 0))
+
+        # Start time slider and entry
+        start_control_frame = ttk.Frame(main_frame)
+        start_control_frame.grid(row=9, column=0, sticky=tk.W, padx=(40, 0), pady=(2, 2))
 
         self.start_time_var = tk.DoubleVar(value=0)
-        self.start_slider = ttk.Scale(main_frame, from_=0, to=100, variable=self.start_time_var,
-                                      orient='horizontal', length=500, command=self.on_slider_change, state='disabled')
-        self.start_slider.grid(row=19, column=0, sticky=tk.W, padx=(40, 0), pady=(2, 2))
+        self.start_slider = ttk.Scale(start_control_frame, from_=0, to=100, variable=self.start_time_var,
+                                      orient='horizontal', length=400, command=self.on_slider_change, state='disabled')
+        self.start_slider.pack(side=tk.LEFT, padx=(0, 10))
 
-        self.start_time_label = ttk.Label(main_frame, text="00:00:00", foreground="blue", font=('Arial', 9))
-        self.start_time_label.grid(row=20, column=0, sticky=tk.W, padx=(40, 0))
+        ttk.Label(start_control_frame, text="Start:", font=('Arial', 9)).pack(side=tk.LEFT, padx=(0, 5))
+        self.start_time_entry = ttk.Entry(start_control_frame, width=10, state='disabled')
+        self.start_time_entry.pack(side=tk.LEFT)
+        self.start_time_entry.insert(0, "00:00:00")
+        self.start_time_entry.bind('<Return>', self.on_start_entry_change)
+        self.start_time_entry.bind('<FocusOut>', self.on_start_entry_change)
 
-        # End time slider
-        end_frame = ttk.Frame(main_frame)
-        end_frame.grid(row=21, column=0, sticky=tk.W, padx=(40, 0), pady=(5, 0))
-
-        ttk.Label(end_frame, text="End Time:", font=('Arial', 9)).pack(side=tk.LEFT)
-
-        # End time preview placeholder
-        self.end_preview_label = tk.Label(end_frame, width=120, height=68, bg='gray20', fg='white',
-                                         text='Preview\nwill appear\nhere', relief='sunken')
-        self.end_preview_label.pack(side=tk.LEFT, padx=(10, 0))
+        # End time slider and entry
+        end_control_frame = ttk.Frame(main_frame)
+        end_control_frame.grid(row=10, column=0, sticky=tk.W, padx=(40, 0), pady=(2, 2))
 
         self.end_time_var = tk.DoubleVar(value=100)
-        self.end_slider = ttk.Scale(main_frame, from_=0, to=100, variable=self.end_time_var,
-                                    orient='horizontal', length=500, command=self.on_slider_change, state='disabled')
-        self.end_slider.grid(row=22, column=0, sticky=tk.W, padx=(40, 0), pady=(2, 2))
+        self.end_slider = ttk.Scale(end_control_frame, from_=0, to=100, variable=self.end_time_var,
+                                    orient='horizontal', length=400, command=self.on_slider_change, state='disabled')
+        self.end_slider.pack(side=tk.LEFT, padx=(0, 10))
 
-        self.end_time_label = ttk.Label(main_frame, text="00:00:00", foreground="blue", font=('Arial', 9))
-        self.end_time_label.grid(row=23, column=0, sticky=tk.W, padx=(40, 0))
+        ttk.Label(end_control_frame, text="End:", font=('Arial', 9)).pack(side=tk.LEFT, padx=(0, 5))
+        self.end_time_entry = ttk.Entry(end_control_frame, width=10, state='disabled')
+        self.end_time_entry.pack(side=tk.LEFT)
+        self.end_time_entry.insert(0, "00:00:00")
+        self.end_time_entry.bind('<Return>', self.on_end_entry_change)
+        self.end_time_entry.bind('<FocusOut>', self.on_end_entry_change)
 
         # Trim duration display
         self.trim_duration_label = ttk.Label(main_frame, text="Selected Duration: 00:00:00", foreground="green", font=('Arial', 9, 'bold'))
-        self.trim_duration_label.grid(row=24, column=0, sticky=tk.W, padx=(40, 0), pady=(3, 0))
+        self.trim_duration_label.grid(row=11, column=0, sticky=tk.W, padx=(40, 0), pady=(3, 0))
 
-        ttk.Separator(main_frame, orient='horizontal').grid(row=25, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=15)
+        ttk.Separator(main_frame, orient='horizontal').grid(row=12, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=15)
 
         path_frame = ttk.Frame(main_frame)
-        path_frame.grid(row=26, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
+        path_frame.grid(row=13, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
 
         ttk.Label(path_frame, text="Save to:").pack(side=tk.LEFT)
         self.path_label = ttk.Label(path_frame, text=self.download_path, foreground="blue")
         self.path_label.pack(side=tk.LEFT, padx=(10, 10))
-        ttk.Button(path_frame, text="Change", command=self.change_path).pack(side=tk.LEFT)
+        ttk.Button(path_frame, text="Change", command=self.change_path).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(path_frame, text="Open Folder", command=self.open_download_folder).pack(side=tk.LEFT)
 
         button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=27, column=0, columnspan=2, pady=(0, 10))
+        button_frame.grid(row=14, column=0, columnspan=2, pady=(0, 10))
 
         self.download_btn = ttk.Button(button_frame, text="Download", command=self.start_download)
         self.download_btn.pack(side=tk.LEFT, padx=(0, 10))
@@ -192,13 +221,13 @@ class YouTubeDownloader:
         self.stop_btn.pack(side=tk.LEFT)
 
         self.progress = ttk.Progressbar(main_frame, mode='determinate', length=560, maximum=100)
-        self.progress.grid(row=28, column=0, columnspan=2)
+        self.progress.grid(row=15, column=0, columnspan=2)
 
         self.progress_label = ttk.Label(main_frame, text="0%", foreground="blue")
-        self.progress_label.grid(row=29, column=0, columnspan=2, pady=(5, 0))
+        self.progress_label.grid(row=16, column=0, columnspan=2, pady=(5, 0))
 
         self.status_label = ttk.Label(main_frame, text="Ready", foreground="green")
-        self.status_label.grid(row=30, column=0, columnspan=2, pady=(10, 0))
+        self.status_label.grid(row=17, column=0, columnspan=2, pady=(10, 0))
 
     def toggle_audio_only(self):
         if self.audio_only_var.get():
@@ -219,10 +248,14 @@ class YouTubeDownloader:
             if self.video_duration > 0:
                 self.start_slider.config(state='normal')
                 self.end_slider.config(state='normal')
+                self.start_time_entry.config(state='normal')
+                self.end_time_entry.config(state='normal')
         else:
             self.fetch_duration_btn.config(state='disabled')
             self.start_slider.config(state='disabled')
             self.end_slider.config(state='disabled')
+            self.start_time_entry.config(state='disabled')
+            self.end_time_entry.config(state='disabled')
 
     def fetch_duration_clicked(self):
         """Handler for fetch duration button"""
@@ -274,9 +307,15 @@ class YouTubeDownloader:
                 self.start_time_var.set(0)
                 self.end_time_var.set(self.video_duration)
 
-                # Update labels
-                self.start_time_label.config(text=self.seconds_to_hms(0))
-                self.end_time_label.config(text=self.seconds_to_hms(self.video_duration))
+                # Update entry fields
+                self.start_time_entry.config(state='normal')
+                self.end_time_entry.config(state='normal')
+                self.start_time_entry.delete(0, tk.END)
+                self.start_time_entry.insert(0, self.seconds_to_hms(0))
+                self.end_time_entry.delete(0, tk.END)
+                self.end_time_entry.insert(0, self.seconds_to_hms(self.video_duration))
+
+                # Update duration label
                 self.trim_duration_label.config(text=f"Selected Duration: {self.seconds_to_hms(self.video_duration)}")
 
                 self.update_status("Duration fetched successfully", "green")
@@ -311,9 +350,11 @@ class YouTubeDownloader:
                     start_time = max(end_time - 1, 0)
                     self.start_time_var.set(start_time)
 
-        # Update labels
-        self.start_time_label.config(text=self.seconds_to_hms(start_time))
-        self.end_time_label.config(text=self.seconds_to_hms(end_time))
+        # Update entry fields
+        self.start_time_entry.delete(0, tk.END)
+        self.start_time_entry.insert(0, self.seconds_to_hms(start_time))
+        self.end_time_entry.delete(0, tk.END)
+        self.end_time_entry.insert(0, self.seconds_to_hms(end_time))
 
         # Update selected duration
         selected_duration = end_time - start_time
@@ -321,6 +362,50 @@ class YouTubeDownloader:
 
         # Schedule preview update with debouncing
         self.schedule_preview_update()
+
+    def hms_to_seconds(self, hms_str):
+        """Convert HH:MM:SS format to seconds"""
+        try:
+            parts = hms_str.strip().split(':')
+            if len(parts) != 3:
+                return None
+            hours, minutes, seconds = map(int, parts)
+            return hours * 3600 + minutes * 60 + seconds
+        except (ValueError, AttributeError):
+            return None
+
+    def on_start_entry_change(self, event=None):
+        """Handle changes to start time entry field"""
+        value_str = self.start_time_entry.get()
+        seconds = self.hms_to_seconds(value_str)
+
+        if seconds is not None and 0 <= seconds <= self.video_duration:
+            # Valid input, update the slider
+            self.start_time_var.set(seconds)
+            # on_slider_change will be called automatically via the variable trace
+            # But we need to trigger it manually since we're setting the variable directly
+            self.on_slider_change()
+        else:
+            # Invalid input, restore the current value
+            current_time = int(self.start_time_var.get())
+            self.start_time_entry.delete(0, tk.END)
+            self.start_time_entry.insert(0, self.seconds_to_hms(current_time))
+
+    def on_end_entry_change(self, event=None):
+        """Handle changes to end time entry field"""
+        value_str = self.end_time_entry.get()
+        seconds = self.hms_to_seconds(value_str)
+
+        if seconds is not None and 0 <= seconds <= self.video_duration:
+            # Valid input, update the slider
+            self.end_time_var.set(seconds)
+            # Trigger slider change handler
+            self.on_slider_change()
+        else:
+            # Invalid input, restore the current value
+            current_time = int(self.end_time_var.get())
+            self.end_time_entry.delete(0, tk.END)
+            self.end_time_entry.insert(0, self.seconds_to_hms(current_time))
 
     def schedule_preview_update(self):
         """Schedule preview update with debouncing to avoid excessive calls"""
@@ -428,7 +513,7 @@ class YouTubeDownloader:
         try:
             # Load and resize image
             img = Image.open(image_path)
-            img.thumbnail((120, 68), Image.Resampling.LANCZOS)
+            img.thumbnail((80, 22), Image.Resampling.LANCZOS)
 
             # Convert to PhotoImage
             photo = ImageTk.PhotoImage(img)
@@ -457,6 +542,18 @@ class YouTubeDownloader:
         if path:
             self.download_path = path
             self.path_label.config(text=path)
+
+    def open_download_folder(self):
+        """Open the download folder in the system file manager"""
+        try:
+            if sys.platform == 'win32':
+                os.startfile(self.download_path)
+            elif sys.platform == 'darwin':
+                subprocess.Popen(['open', self.download_path])
+            else:
+                subprocess.Popen(['xdg-open', self.download_path])
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to open folder:\n{str(e)}")
 
     def check_dependencies(self):
         try:
