@@ -625,6 +625,14 @@ class YouTubeDownloader:
                     return
 
             if audio_only:
+                # Generate filename with trim times if trimming is enabled
+                if trim_enabled:
+                    start_hms = self.seconds_to_hms(start_time).replace(':', '-')
+                    end_hms = self.seconds_to_hms(end_time).replace(':', '-')
+                    output_template = f'%(title)s_[{start_hms}_to_{end_hms}].%(ext)s'
+                else:
+                    output_template = '%(title)s.%(ext)s'
+
                 cmd = [
                     self.ytdlp_path,
                     '-f', 'bestaudio',
@@ -633,7 +641,7 @@ class YouTubeDownloader:
                     '--audio-quality', '128K',
                     '--newline',
                     '--progress',
-                    '-o', os.path.join(self.download_path, '%(title)s.%(ext)s'),
+                    '-o', os.path.join(self.download_path, output_template),
                 ]
 
                 # Add trimming for audio
@@ -653,6 +661,15 @@ class YouTubeDownloader:
                     return
 
                 height = quality
+
+                # Generate filename with trim times if trimming is enabled
+                if trim_enabled:
+                    start_hms_file = self.seconds_to_hms(start_time).replace(':', '-')
+                    end_hms_file = self.seconds_to_hms(end_time).replace(':', '-')
+                    output_template = f'%(title)s_[{start_hms_file}_to_{end_hms_file}].%(ext)s'
+                else:
+                    output_template = '%(title)s.%(ext)s'
+
                 cmd = [
                     self.ytdlp_path,
                     '-f', f'bestvideo[height<={height}]+bestaudio/best[height<={height}]',
@@ -673,7 +690,7 @@ class YouTubeDownloader:
                     '--postprocessor-args', 'ffmpeg:-c:v libx264 -crf 23 -preset medium -c:a aac -b:a 128k',
                     '--newline',
                     '--progress',
-                    '-o', os.path.join(self.download_path, '%(title)s.%(ext)s'),
+                    '-o', os.path.join(self.download_path, output_template),
                     url
                 ])
 
