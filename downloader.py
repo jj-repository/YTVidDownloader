@@ -283,6 +283,135 @@ class YouTubeDownloader:
 
         return True
 
+    @staticmethod
+    def safe_process_cleanup(process, timeout=PROCESS_TERMINATE_TIMEOUT):
+        """Safely terminate and cleanup a subprocess.
+
+        Args:
+            process: subprocess.Popen instance
+            timeout: Seconds to wait for graceful termination
+
+        Returns:
+            bool: True if process was cleaned up successfully
+        """
+        if process is None:
+            return True
+
+        try:
+            if process.poll() is None:  # Process still running
+                process.terminate()
+                try:
+                    process.wait(timeout=timeout)
+                except subprocess.TimeoutExpired:
+                    logger.warning(f"Process {process.pid} did not terminate, forcing kill")
+                    process.kill()
+                    process.wait()
+
+            # Close pipes to prevent resource leaks
+            if process.stdout:
+                process.stdout.close()
+            if process.stderr:
+                process.stderr.close()
+            if process.stdin:
+                process.stdin.close()
+
+            return True
+        except Exception as e:
+            logger.error(f"Error cleaning up process: {e}")
+            return False
+
+    # Command building helper methods
+
+    def build_base_ytdlp_command(self, url):
+        """Build base yt-dlp command with common options.
+
+        Args:
+            url: YouTube URL to download
+
+        Returns:
+            list: Base command with common flags
+        """
+        return [
+            self.ytdlp_path,
+            '--concurrent-fragments', '5',
+            '--buffer-size', BUFFER_SIZE,
+            '--http-chunk-size', CHUNK_SIZE,
+            '--newline',
+            '--progress',
+        ]
+
+    def build_audio_ytdlp_command(self, url, output_path, volume=1.0):
+        """Build yt-dlp command for audio-only download.
+
+        Args:
+            url: YouTube URL
+            output_path: Full output path with filename template
+            volume: Volume multiplier (default 1.0)
+
+        Returns:
+            list: Complete command for audio download
+        """
+        cmd = self.build_base_ytdlp_command(url)
+        cmd.extend([
+            '-f', 'bestaudio',
+            '--extract-audio',
+            '--audio-format', 'm4a',
+            '--audio-quality', AUDIO_BITRATE,
+        ])
+
+        # Add volume filter if needed
+        if volume != 1.0:
+            cmd.extend(['--postprocessor-args', f'ffmpeg:-af volume={volume}'])
+
+        cmd.extend(['-o', output_path, url])
+        return cmd
+
+    def build_video_ytdlp_command(self, url, output_path, quality, volume=1.0,
+                                    trim_start=None, trim_end=None):
+        """Build yt-dlp command for video download with optional trimming.
+
+        Args:
+            url: YouTube URL
+            output_path: Full output path with filename template
+            quality: Video height (e.g., '1080', '720')
+            volume: Volume multiplier (default 1.0)
+            trim_start: Start time in seconds (optional)
+            trim_end: End time in seconds (optional)
+
+        Returns:
+            list: Complete command for video download
+        """
+        cmd = self.build_base_ytdlp_command(url)
+        cmd.extend([
+            '-f', f'bestvideo[height<={quality}]+bestaudio/best[height<={quality}]',
+            '--merge-output-format', 'mp4',
+        ])
+
+        # Add trimming if specified
+        trim_enabled = trim_start is not None and trim_end is not None
+        if trim_enabled:
+            start_hms = self.seconds_to_hms(trim_start)
+            end_hms = self.seconds_to_hms(trim_end)
+            cmd.extend([
+                '--download-sections', f'*{start_hms}-{end_hms}',
+                '--force-keyframes-at-cuts',
+            ])
+
+        # Build ffmpeg postprocessor args if needed
+        needs_processing = trim_enabled or volume != 1.0
+        if needs_processing:
+            ffmpeg_args = [
+                '-c:v', 'libx264', '-crf', str(VIDEO_CRF),
+                '-preset', 'faster', '-c:a', 'aac', '-b:a', AUDIO_BITRATE
+            ]
+            if volume != 1.0:
+                ffmpeg_args.extend(['-af', f'volume={volume}'])
+
+            cmd.extend(['--postprocessor-args', 'ffmpeg:' + ' '.join(ffmpeg_args)])
+
+        cmd.extend(['-o', output_path, url])
+        return cmd
+
     def validate_youtube_url(self, url):
         """Validate if URL is a valid YouTube URL"""
         if not url:
@@ -2857,7 +2986,9 @@ class YouTubeDownloader:
             logger.error(f"Error cleaning up temp files: {e}")
 
     def on_closing(self):
-        """Handle window close event"""
+        """Handle window close event with proper resource cleanup"""
+        logger.info("Application shutdown initiated...")
+
         # Stop clipboard monitoring
         self.stop_clipboard_monitoring()
 
@@ -2868,21 +2999,23 @@ class YouTubeDownloader:
 
         # Stop any ongoing downloads gracefully
         if self.is_downloading and self.current_process:
-            try:
-                self.current_process.terminate()
-                try:
-                    self.current_process.wait(timeout=2)
-                except subprocess.TimeoutExpired:
-                    self.current_process.kill()
-            except Exception:
-                pass
+            logger.info("Terminating active download process...")
+            self.safe_process_cleanup(self.current_process)
 
         # Clean up temp files
-        self.cleanup_temp_files()
+        try:
+            self.cleanup_temp_files()
+        except Exception as e:
+            logger.error(f"Error cleaning temp files: {e}")
 
-        # Shutdown thread pool
+        # Shutdown thread pool gracefully with timeout
         logger.info("Shutting down thread pool...")
-        self.thread_pool.shutdown(wait=False, cancel_futures=True)
+        try:
+            self.thread_pool.shutdown(wait=True, cancel_futures=False)
+        except Exception as e:
+            logger.error(f"Error shutting down thread pool: {e}")
+
+        logger.info("Application shutdown complete")
 
         # Close the window
         self.root.destroy()
