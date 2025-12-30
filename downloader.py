@@ -943,11 +943,12 @@ class YouTubeDownloader:
             CLIPBOARD_URLS_FILE.parent.mkdir(parents=True, exist_ok=True)
             import json
             # Save only pending and failed URLs (not completed ones)
-            urls_to_save = [
-                {'url': item['url'], 'status': item['status']}
-                for item in self.clipboard_url_list
-                if item['status'] in ['pending', 'failed']
-            ]
+            with self.clipboard_lock:
+                urls_to_save = [
+                    {'url': item['url'], 'status': item['status']}
+                    for item in self.clipboard_url_list
+                    if item['status'] in ['pending', 'failed']
+                ]
             with open(CLIPBOARD_URLS_FILE, 'w') as f:
                 json.dump({'urls': urls_to_save}, f, indent=2)
             logger.info(f"Saved {len(urls_to_save)} clipboard URLs")
@@ -960,7 +961,9 @@ class YouTubeDownloader:
             for url_data in self.persisted_clipboard_urls:
                 url = url_data.get('url', '')
                 status = url_data.get('status', 'pending')
-                if url and url not in [item['url'] for item in self.clipboard_url_list]:
+                with self.clipboard_lock:
+                    url_exists = url and url not in [item['url'] for item in self.clipboard_url_list]
+                if url_exists:
                     self._add_url_to_clipboard_list(url)
                     if status == 'failed':
                         self._update_url_status(url, 'failed')
@@ -1423,6 +1426,19 @@ class YouTubeDownloader:
         self.temp_dir = tempfile.mkdtemp(prefix="ytdl_preview_")
 
     def setup_ui(self):
+        """Setup the complete user interface with all tabs and widgets.
+
+        Creates a tabbed interface with three main tabs:
+        - Trimmer: Video download, trimming, and preview
+        - Clipboard Mode: Automatic URL detection and batch downloading
+        - Uploader: File upload to Catbox.moe
+
+        Features:
+        - Language selector dropdown at the top
+        - Scrollable canvas for all content
+        - Mouse wheel scrolling support
+        - Responsive layout with proper grid configuration
+        """
         # Configure root grid to expand
         self.root.grid_rowconfigure(0, weight=1)
         self.root.grid_columnconfigure(0, weight=1)
@@ -2001,7 +2017,8 @@ class YouTubeDownloader:
                 is_valid, message = self.validate_youtube_url(clipboard_content)
 
                 if is_valid:
-                    url_exists = any(item['url'] == clipboard_content for item in self.clipboard_url_list)
+                    with self.clipboard_lock:
+                        url_exists = any(item['url'] == clipboard_content for item in self.clipboard_url_list)
 
                     if not url_exists:
                         self._add_url_to_clipboard_list(clipboard_content)
@@ -2050,11 +2067,13 @@ class YouTubeDownloader:
             'status_circle': status_circle
         }
 
-        self.clipboard_url_list.append(url_data)
-        self.clipboard_url_widgets[url] = url_data
+        with self.clipboard_lock:
+            self.clipboard_url_list.append(url_data)
+            self.clipboard_url_widgets[url] = url_data
+            has_urls = len(self.clipboard_url_list) > 0
 
         self._update_clipboard_url_count()
-        if len(self.clipboard_url_list) > 0 and not self.clipboard_downloading:
+        if has_urls and not self.clipboard_downloading:
             self.clipboard_download_btn.config(state='normal')
 
         # Save URLs to persistence file
@@ -2062,21 +2081,29 @@ class YouTubeDownloader:
 
     def _remove_url_from_list(self, url):
         """Remove URL from clipboard list"""
-        for i, item in enumerate(self.clipboard_url_list):
-            if item['url'] == url:
-                if item['widget']:
-                    item['widget'].destroy()
-                self.clipboard_url_list.pop(i)
-                if url in self.clipboard_url_widgets:
-                    del self.clipboard_url_widgets[url]
-                self._update_clipboard_url_count()
-                if len(self.clipboard_url_list) == 0:
-                    self.clipboard_download_btn.config(state='disabled')
-                logger.info(f"Removed URL: {url}")
+        widget_to_destroy = None
+        list_is_empty = False
 
-                # Save URLs to persistence file
-                self._save_clipboard_urls()
-                break
+        with self.clipboard_lock:
+            for i, item in enumerate(self.clipboard_url_list):
+                if item['url'] == url:
+                    widget_to_destroy = item['widget']
+                    self.clipboard_url_list.pop(i)
+                    if url in self.clipboard_url_widgets:
+                        del self.clipboard_url_widgets[url]
+                    list_is_empty = len(self.clipboard_url_list) == 0
+                    break
+
+        # UI operations outside the lock
+        if widget_to_destroy:
+            widget_to_destroy.destroy()
+            self._update_clipboard_url_count()
+            if list_is_empty:
+                self.clipboard_download_btn.config(state='disabled')
+            logger.info(f"Removed URL: {url}")
+
+            # Save URLs to persistence file
+            self._save_clipboard_urls()
 
     def clear_all_clipboard_urls(self):
         """Clear all URLs from clipboard list"""
@@ -2084,12 +2111,16 @@ class YouTubeDownloader:
             messagebox.showwarning(tr('warning_cannot_clear_title'), tr('warning_cannot_clear_downloading'))
             return
 
-        for item in self.clipboard_url_list:
-            if item['widget']:
-                item['widget'].destroy()
+        # Take snapshot of widgets to destroy
+        with self.clipboard_lock:
+            widgets_to_destroy = [item['widget'] for item in self.clipboard_url_list if item['widget']]
+            self.clipboard_url_list.clear()
+            self.clipboard_url_widgets.clear()
 
-        self.clipboard_url_list.clear()
-        self.clipboard_url_widgets.clear()
+        # UI operations outside the lock
+        for widget in widgets_to_destroy:
+            widget.destroy()
+
         self._update_clipboard_url_count()
         self.clipboard_download_btn.config(state='disabled')
         logger.info("Cleared all clipboard URLs")
@@ -2099,7 +2130,8 @@ class YouTubeDownloader:
 
     def _update_clipboard_url_count(self):
         """Update URL count label"""
-        count = len(self.clipboard_url_list)
+        with self.clipboard_lock:
+            count = len(self.clipboard_url_list)
         s = 's' if count != 1 else ''
         self.clipboard_url_count_label.config(text=tr('label_url_count', count=count, s=s))
 
@@ -2114,10 +2146,11 @@ class YouTubeDownloader:
             color = color_map.get(status, 'gray')
             status_canvas.itemconfig(status_circle, fill=color)
 
-            for item_data in self.clipboard_url_list:
-                if item_data['url'] == url:
-                    item_data['status'] = status
-                    break
+            with self.clipboard_lock:
+                for item_data in self.clipboard_url_list:
+                    if item_data['url'] == url:
+                        item_data['status'] = status
+                        break
 
     # Phase 6: Download Queue (Sequential Processing)
 
@@ -2126,7 +2159,8 @@ class YouTubeDownloader:
         if self.clipboard_downloading:
             return
 
-        pending_urls = [item for item in self.clipboard_url_list if item['status'] == 'pending']
+        with self.clipboard_lock:
+            pending_urls = [item for item in self.clipboard_url_list if item['status'] == 'pending']
 
         if not pending_urls:
             messagebox.showinfo(tr('warning_no_urls_title'), tr('warning_no_urls'))
@@ -2144,7 +2178,8 @@ class YouTubeDownloader:
 
     def _process_clipboard_queue(self):
         """Process clipboard download queue sequentially"""
-        pending_urls = [item for item in self.clipboard_url_list if item['status'] == 'pending']
+        with self.clipboard_lock:
+            pending_urls = [item for item in self.clipboard_url_list if item['status'] == 'pending']
         total_count = len(pending_urls)
 
         for index, item in enumerate(pending_urls):
@@ -2235,11 +2270,14 @@ class YouTubeDownloader:
     def _finish_clipboard_downloads(self):
         """Clean up after batch downloads complete"""
         self.clipboard_downloading = False
-        self.clipboard_download_btn.config(state='normal' if len(self.clipboard_url_list) > 0 else 'disabled')
-        self.clipboard_stop_btn.config(state='disabled')
 
-        completed = sum(1 for item in self.clipboard_url_list if item['status'] == 'completed')
-        failed = sum(1 for item in self.clipboard_url_list if item['status'] == 'failed')
+        with self.clipboard_lock:
+            has_urls = len(self.clipboard_url_list) > 0
+            completed = sum(1 for item in self.clipboard_url_list if item['status'] == 'completed')
+            failed = sum(1 for item in self.clipboard_url_list if item['status'] == 'failed')
+
+        self.clipboard_download_btn.config(state='normal' if has_urls else 'disabled')
+        self.clipboard_stop_btn.config(state='disabled')
 
         if failed > 0:
             self.update_clipboard_status(tr('status_completed_failed', completed=completed, failed=failed), "orange")
@@ -2267,7 +2305,8 @@ class YouTubeDownloader:
         """Auto-download single URL when detected (if auto-download enabled)"""
         # Check if another auto-download is already in progress (thread-safe)
         with self.auto_download_lock:
-            downloading_count = sum(1 for item in self.clipboard_url_list if item['status'] == 'downloading')
+            with self.clipboard_lock:
+                downloading_count = sum(1 for item in self.clipboard_url_list if item['status'] == 'downloading')
             if downloading_count > 0:
                 # Another download is in progress, keep this one pending
                 logger.info(f"URL queued (another download in progress): {url}")
@@ -2331,18 +2370,24 @@ class YouTubeDownloader:
 
         if self.clipboard_auto_download_var.get():
             # Find first pending URL
-            for item in self.clipboard_url_list:
-                if item['status'] == 'pending':
-                    self._auto_download_single_url(item['url'])
-                    break  # Only start one at a time
+            with self.clipboard_lock:
+                next_pending_url = None
+                for item in self.clipboard_url_list:
+                    if item['status'] == 'pending':
+                        next_pending_url = item['url']
+                        break  # Only start one at a time
+
+            if next_pending_url:
+                self._auto_download_single_url(next_pending_url)
         else:
             # Disable stop button if idle
             self._disable_stop_if_idle()
 
     def _update_auto_download_total(self):
         """Update total progress for auto-downloads"""
-        total = len(self.clipboard_url_list)
-        completed = sum(1 for item in self.clipboard_url_list if item['status'] in ['completed', 'failed'])
+        with self.clipboard_lock:
+            total = len(self.clipboard_url_list)
+            completed = sum(1 for item in self.clipboard_url_list if item['status'] in ['completed', 'failed'])
         self.clipboard_total_label.config(text=tr('status_clipboard_completed_total', completed=completed, total=total))
 
     # Phase 7: Helper Methods
@@ -2725,7 +2770,23 @@ class YouTubeDownloader:
                 self.fetch_duration_btn.config(state='normal')
 
     def on_slider_change(self, event=None):
-        """Handle slider changes"""
+        """Handle slider changes and enforce valid time ranges.
+
+        Called when start/end time sliders are moved by the user or programmatically.
+        Ensures start time is always before end time by automatically adjusting
+        the other slider when needed.
+
+        Args:
+            event: Optional event object. If None, no automatic adjustment occurs
+                   (used for programmatic updates to prevent adjustment loops)
+
+        Behavior:
+            - If start >= end and event exists, adjusts the non-moved slider
+            - Updates HH:MM:SS entry fields to match slider values
+            - Recalculates selected duration label
+            - Updates estimated file size for trimmed segment
+            - Schedules debounced preview frame update
+        """
         start_time = int(self.start_time_var.get())
         end_time = int(self.end_time_var.get())
 
@@ -2847,8 +2908,7 @@ class YouTubeDownloader:
         self.upload_url_frame.grid_remove()
 
         # Start upload in background thread
-        upload_thread = threading.Thread(target=self.upload_to_catbox, daemon=True)
-        upload_thread.start()
+        self.thread_pool.submit(self.upload_to_catbox)
 
     def upload_to_catbox(self):
         """Upload file to Catbox.moe and display the URL"""
@@ -3008,8 +3068,7 @@ class YouTubeDownloader:
         self.uploader_url_frame.grid_remove()
 
         # Start upload queue processing in background thread
-        upload_thread = threading.Thread(target=self._process_uploader_queue, daemon=True)
-        upload_thread.start()
+        self.thread_pool.submit(self._process_uploader_queue)
 
     def _process_uploader_queue(self):
         """Process upload queue sequentially"""
