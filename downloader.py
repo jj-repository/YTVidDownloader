@@ -58,6 +58,26 @@ MAX_WORKER_THREADS = 3  # Thread pool size for background tasks
 MAX_RETRY_ATTEMPTS = 3  # Retry network operations up to 3 times
 RETRY_DELAY = 2  # Seconds between retry attempts
 
+# Performance constants
+CLIPBOARD_POLL_INTERVAL_MS = 500  # Poll clipboard every 500ms (was 100ms)
+VIDEO_CRF = 23  # Video quality (lower = better, 18-28 range)
+AUDIO_BITRATE = '128k'  # Audio bitrate for downloads
+BUFFER_SIZE = '16K'  # Download buffer size
+CHUNK_SIZE = '10M'  # HTTP chunk size
+
+# Security: Maximum values for validation
+MAX_VOLUME = 2.0  # Maximum 200% volume
+MIN_VOLUME = 0.0  # Minimum 0% volume (mute)
+MAX_VIDEO_DURATION = 86400  # Max 24 hours
+CATBOX_MAX_SIZE_MB = 200  # Catbox file size limit
+
+# Compiled regex patterns for performance
+PROGRESS_REGEX = re.compile(r'(\d+\.?\d*)%')
+SPEED_REGEX = re.compile(r'(\d+\.?\d*\s*[KMG]iB/s)')
+ETA_REGEX = re.compile(r'ETA\s+(\d{2}:\d{2}(?::\d{2})?)')
+FILESIZE_REGEX = re.compile(r'(\d+\.?\d*\s*[KMG]iB)')
+TIME_REGEX = re.compile(r'^(\d{1,2}):(\d{2}):(\d{2})$')
+
 class YouTubeDownloader:
     def __init__(self, root):
         logger.info("Initializing YTVidDownloader")
@@ -121,6 +141,11 @@ class YouTubeDownloader:
         # Thread pool for background tasks
         self.thread_pool = ThreadPoolExecutor(max_workers=MAX_WORKER_THREADS, thread_name_prefix="ytdl_worker")
 
+        # Thread safety locks
+        self.preview_lock = threading.Lock()  # Protect preview thread state
+        self.clipboard_lock = threading.Lock()  # Protect clipboard URL list
+        self.auto_download_lock = threading.Lock()  # Protect auto-download state
+
         # Clipboard Mode variables
         self.clipboard_monitoring = False
         self.clipboard_monitor_thread = None
@@ -152,25 +177,6 @@ class YouTubeDownloader:
         # Bind cleanup on window close
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
-    def find_ytdlp(self):
-        """Find yt-dlp in various locations"""
-        # Check if running as PyInstaller bundle
-        if getattr(sys, 'frozen', False):
-            bundle_dir = Path(sys.executable).parent
-            # Check in same directory as executable
-            ytdlp_local = bundle_dir / "yt-dlp"
-            if ytdlp_local.exists():
-                return str(ytdlp_local)
-        else:
-            # Running from source, check venv
-            venv_path = Path(sys.executable).parent
-            ytdlp_venv = venv_path / "yt-dlp"
-            if ytdlp_venv.exists():
-                return str(ytdlp_venv)
-
-        # Fall back to system PATH
-        return "yt-dlp"
-
     def retry_network_operation(self, operation, operation_name, *args, **kwargs):
         """Retry a network operation with exponential backoff"""
         for attempt in range(1, MAX_RETRY_ATTEMPTS + 1):
@@ -192,6 +198,90 @@ class YouTubeDownloader:
                 # Don't retry on unexpected errors
                 logger.error(f"{operation_name} failed with unexpected error: {e}")
                 raise
+
+    # Security and validation methods
+
+    @staticmethod
+    def sanitize_filename(filename):
+        """Sanitize filename to prevent path traversal and command injection.
+
+        Removes:
+        - Path separators (/, \\)
+        - Parent directory references (..)
+        - Shell metacharacters
+        - Control characters
+        - Leading/trailing dots and spaces
+        """
+        if not filename:
+            return ""
+
+        # Remove path separators and parent directory references
+        dangerous_chars = ['/', '\\', '..', '\x00']
+        for char in dangerous_chars:
+            filename = filename.replace(char, '')
+
+        # Remove shell metacharacters that could be dangerous
+        shell_chars = ['$', '`', '|', ';', '&', '<', '>', '(', ')', '{', '}', '[', ']', '!', '*', '?', '~', '^']
+        for char in shell_chars:
+            filename = filename.replace(char, '')
+
+        # Remove control characters (ASCII 0-31 and 127)
+        filename = ''.join(char for char in filename if ord(char) >= 32 and ord(char) != 127)
+
+        # Remove leading/trailing dots and spaces
+        filename = filename.strip('. ')
+
+        # Limit length to 200 characters (filesystem limits)
+        if len(filename) > 200:
+            filename = filename[:200]
+
+        return filename
+
+    @staticmethod
+    def validate_volume(volume):
+        """Validate and clamp volume value to safe range."""
+        try:
+            vol = float(volume)
+            return max(MIN_VOLUME, min(MAX_VOLUME, vol))
+        except (ValueError, TypeError):
+            return 1.0  # Default to 100%
+
+    @staticmethod
+    def validate_time(time_str):
+        """Validate time format HH:MM:SS and return seconds, or None if invalid."""
+        if not time_str:
+            return None
+
+        match = TIME_REGEX.match(time_str.strip())
+        if not match:
+            return None
+
+        hours, minutes, seconds = map(int, match.groups())
+        if minutes >= 60 or seconds >= 60:
+            return None
+
+        total_seconds = hours * 3600 + minutes * 60 + seconds
+        if total_seconds > MAX_VIDEO_DURATION:
+            return None
+
+        return total_seconds
+
+    @staticmethod
+    def validate_time_range(start_seconds, end_seconds, duration):
+        """Validate that time range is logical and within bounds."""
+        if start_seconds is None or end_seconds is None or duration is None:
+            return False
+
+        if start_seconds < 0 or end_seconds < 0:
+            return False
+
+        if start_seconds >= end_seconds:
+            return False
+
+        if end_seconds > duration:
+            return False
+
+        return True
 
     def validate_youtube_url(self, url):
         """Validate if URL is a valid YouTube URL"""
@@ -760,9 +850,9 @@ class YouTubeDownloader:
         except Exception as e:
             logger.error(f"Error polling clipboard: {e}")
 
-        # Schedule next poll (100ms for fast detection)
+        # Schedule next poll
         if self.clipboard_monitoring:
-            self.root.after(100, self._poll_clipboard)
+            self.root.after(CLIPBOARD_POLL_INTERVAL_MS, self._poll_clipboard)
 
     def _get_clipboard_content(self):
         """Get clipboard content using platform-specific method"""
@@ -991,8 +1081,8 @@ class YouTubeDownloader:
                 cmd = [
                     self.ytdlp_path,
                     '--concurrent-fragments', '5',
-                    '--buffer-size', '16K',
-                    '--http-chunk-size', '10M',
+                    '--buffer-size', BUFFER_SIZE,
+                    '--http-chunk-size', CHUNK_SIZE,
                     '-f', 'bestaudio',
                     '--extract-audio',
                     '--audio-format', 'm4a',
@@ -1006,8 +1096,8 @@ class YouTubeDownloader:
                 cmd = [
                     self.ytdlp_path,
                     '--concurrent-fragments', '5',
-                    '--buffer-size', '16K',
-                    '--http-chunk-size', '10M',
+                    '--buffer-size', BUFFER_SIZE,
+                    '--http-chunk-size', CHUNK_SIZE,
                     '-f', f'bestvideo[height<={quality}]+bestaudio/best[height<={quality}]',
                     '--merge-output-format', 'mp4',
                     '--newline',
@@ -1029,7 +1119,7 @@ class YouTubeDownloader:
                     return False
 
                 if '[download]' in line or 'Downloading' in line:
-                    progress_match = re.search(r'(\d+\.?\d*)%', line)
+                    progress_match = PROGRESS_REGEX.search(line)
                     if progress_match:
                         progress = float(progress_match.group(1))
                         self.root.after(0, lambda p=progress: self.update_clipboard_progress(p))
@@ -1081,16 +1171,19 @@ class YouTubeDownloader:
 
     def _auto_download_single_url(self, url):
         """Auto-download single URL when detected (if auto-download enabled)"""
-        # Check if another auto-download is already in progress
-        downloading_count = sum(1 for item in self.clipboard_url_list if item['status'] == 'downloading')
-        if downloading_count > 0:
-            # Another download is in progress, keep this one pending
-            logger.info(f"URL queued (another download in progress): {url}")
-            return
+        # Check if another auto-download is already in progress (thread-safe)
+        with self.auto_download_lock:
+            downloading_count = sum(1 for item in self.clipboard_url_list if item['status'] == 'downloading')
+            if downloading_count > 0:
+                # Another download is in progress, keep this one pending
+                logger.info(f"URL queued (another download in progress): {url}")
+                return
 
-        self.clipboard_auto_downloading = True
+            self.clipboard_auto_downloading = True
+            self._update_url_status(url, 'downloading')
+
+        # Update UI outside the lock
         self.clipboard_stop_btn.config(state='normal')  # Enable stop button
-        self._update_url_status(url, 'downloading')
         self._update_auto_download_total()
         self.thread_pool.submit(self._auto_download_worker, url)
 
@@ -1857,9 +1950,11 @@ class YouTubeDownloader:
         if not self.current_video_url or self.video_duration == 0:
             return
 
-        # Prevent spawning multiple preview threads
-        if self.preview_thread_running:
-            return
+        # Prevent spawning multiple preview threads (thread-safe)
+        with self.preview_lock:
+            if self.preview_thread_running:
+                return
+            self.preview_thread_running = True
 
         start_time = int(self.start_time_var.get())
         end_time = int(self.end_time_var.get())
@@ -1874,7 +1969,6 @@ class YouTubeDownloader:
     def _update_previews_thread(self, start_time, end_time):
         """Background thread to extract and update preview frames"""
         try:
-            self.preview_thread_running = True
             logger.info(f"Extracting preview frames at {start_time}s and {end_time}s")
 
             # Extract start frame
@@ -2238,7 +2332,7 @@ class YouTubeDownloader:
 
             if audio_only:
                 # Check for custom filename
-                custom_name = self.filename_entry.get().strip()
+                custom_name = self.sanitize_filename(self.filename_entry.get().strip())
                 if custom_name:
                     # Use custom filename
                     base_name = custom_name
@@ -2257,8 +2351,8 @@ class YouTubeDownloader:
                 cmd = [
                     self.ytdlp_path,
                     '--concurrent-fragments', '5',  # Download fragments in parallel
-                    '--buffer-size', '16K',  # Better buffering
-                    '--http-chunk-size', '10M',  # Larger chunks = fewer requests
+                    '--buffer-size', BUFFER_SIZE,  # Better buffering
+                    '--http-chunk-size', CHUNK_SIZE,  # Larger chunks = fewer requests
                     '-f', 'bestaudio',
                     '--extract-audio',
                     '--audio-format', 'm4a',
@@ -2274,8 +2368,8 @@ class YouTubeDownloader:
                 if trim_enabled:
                     ffmpeg_args.extend(['-ss', str(start_time), '-to', str(end_time)])
 
-                # Add volume filter
-                volume_multiplier = self.volume_var.get()
+                # Add volume filter (validated)
+                volume_multiplier = self.validate_volume(self.volume_var.get())
                 if volume_multiplier != 1.0:
                     ffmpeg_args.extend(['-af', f'volume={volume_multiplier}'])
 
@@ -2298,7 +2392,7 @@ class YouTubeDownloader:
                 height = quality
 
                 # Check for custom filename
-                custom_name = self.filename_entry.get().strip()
+                custom_name = self.sanitize_filename(self.filename_entry.get().strip())
                 if custom_name:
                     # Use custom filename
                     base_name = custom_name
@@ -2317,8 +2411,8 @@ class YouTubeDownloader:
                 cmd = [
                     self.ytdlp_path,
                     '--concurrent-fragments', '5',  # Download fragments in parallel
-                    '--buffer-size', '16K',  # Better buffering
-                    '--http-chunk-size', '10M',  # Larger chunks = fewer requests
+                    '--buffer-size', BUFFER_SIZE,  # Better buffering
+                    '--http-chunk-size', CHUNK_SIZE,  # Larger chunks = fewer requests
                     '-f', f'bestvideo[height<={height}]+bestaudio/best[height<={height}]',
                     '--merge-output-format', 'mp4',
                 ]
@@ -2334,12 +2428,12 @@ class YouTubeDownloader:
                     ])
 
                 # Build ffmpeg postprocessor args for video (only if needed)
-                volume_multiplier = self.volume_var.get()
+                volume_multiplier = self.validate_volume(self.volume_var.get())
                 needs_processing = trim_enabled or volume_multiplier != 1.0
 
                 if needs_processing:
                     # Need to re-encode due to trimming or volume change
-                    ffmpeg_video_args = ['-c:v', 'libx264', '-crf', '23', '-preset', 'faster', '-c:a', 'aac', '-b:a', '128k']
+                    ffmpeg_video_args = ['-c:v', 'libx264', '-crf', str(VIDEO_CRF), '-preset', 'faster', '-c:a', 'aac', '-b:a', AUDIO_BITRATE]
 
                     # Add volume filter if needed
                     if volume_multiplier != 1.0:
@@ -2373,7 +2467,7 @@ class YouTubeDownloader:
                 # Look for download progress - multiple patterns for reliability
                 if '[download]' in line or 'Downloading' in line:
                     # Parse progress percentage
-                    progress_match = re.search(r'(\d+\.?\d*)%', line)
+                    progress_match = PROGRESS_REGEX.search(line)
                     if progress_match:
                         progress = float(progress_match.group(1))
                         self.update_progress(progress)
@@ -2382,13 +2476,13 @@ class YouTubeDownloader:
                         status_msg = f"Downloading... {progress:.1f}%"
 
                         # Look for speed (e.g., "1.23MiB/s" or "500.00KiB/s")
-                        speed_match = re.search(r'(\d+\.?\d*\s*[KMG]iB/s)', line)
+                        speed_match = SPEED_REGEX.search(line)
                         if speed_match:
                             speed = speed_match.group(1)
                             status_msg += f" at {speed}"
 
                         # Look for ETA (e.g., "00:05" or "01:23:45")
-                        eta_match = re.search(r'ETA\s+(\d{2}:\d{2}(?::\d{2})?)', line)
+                        eta_match = ETA_REGEX.search(line)
                         if eta_match:
                             eta = eta_match.group(1)
                             status_msg += f" | ETA: {eta}"
@@ -2490,7 +2584,7 @@ class YouTubeDownloader:
                     return
 
             # Generate output filename
-            custom_name = self.filename_entry.get().strip()
+            custom_name = self.sanitize_filename(self.filename_entry.get().strip())
             if custom_name:
                 # Use custom filename
                 base_name = custom_name
@@ -2510,7 +2604,7 @@ class YouTubeDownloader:
                 else:
                     output_name = f"{base_name}_processed"
 
-            volume_multiplier = self.volume_var.get()
+            volume_multiplier = self.validate_volume(self.volume_var.get())
 
             if audio_only:
                 # Extract audio only
@@ -2543,8 +2637,8 @@ class YouTubeDownloader:
                 if trim_enabled:
                     cmd.extend(['-ss', str(start_time), '-to', str(end_time)])
 
-                cmd.extend(['-vf', f'scale=-2:{height}', '-c:v', 'libx264', '-crf', '23',
-                           '-preset', 'faster', '-c:a', 'aac', '-b:a', '128k'])
+                cmd.extend(['-vf', f'scale=-2:{height}', '-c:v', 'libx264', '-crf', str(VIDEO_CRF),
+                           '-preset', 'faster', '-c:a', 'aac', '-b:a', AUDIO_BITRATE])
 
                 if volume_multiplier != 1.0:
                     cmd.extend(['-af', f'volume={volume_multiplier}'])
@@ -2611,10 +2705,10 @@ class YouTubeDownloader:
         try:
             quality = self.quality_var.get()
             audio_only = (quality == "none")
-            volume_multiplier = self.volume_var.get()
+            volume_multiplier = self.validate_volume(self.volume_var.get())
 
             # Check for custom filename
-            custom_name = self.filename_entry.get().strip()
+            custom_name = self.sanitize_filename(self.filename_entry.get().strip())
             if custom_name:
                 # Use custom name with playlist index: MyVideo-1, MyVideo-2, etc.
                 output_template = f'{custom_name}-%(playlist_index)s.%(ext)s'
@@ -2630,8 +2724,8 @@ class YouTubeDownloader:
                 cmd = [
                     self.ytdlp_path,
                     '--concurrent-fragments', '5',  # Download fragments in parallel
-                    '--buffer-size', '16K',  # Better buffering
-                    '--http-chunk-size', '10M',  # Larger chunks = fewer requests
+                    '--buffer-size', BUFFER_SIZE,  # Better buffering
+                    '--http-chunk-size', CHUNK_SIZE,  # Larger chunks = fewer requests
                     '-f', 'bestaudio',
                     '--extract-audio',
                     '--audio-format', 'm4a',
@@ -2663,8 +2757,8 @@ class YouTubeDownloader:
                 cmd = [
                     self.ytdlp_path,
                     '--concurrent-fragments', '5',  # Download fragments in parallel
-                    '--buffer-size', '16K',  # Better buffering
-                    '--http-chunk-size', '10M',  # Larger chunks = fewer requests
+                    '--buffer-size', BUFFER_SIZE,  # Better buffering
+                    '--http-chunk-size', CHUNK_SIZE,  # Larger chunks = fewer requests
                     '-f', f'bestvideo[height<={height}]+bestaudio/best[height<={height}]',
                     '--merge-output-format', 'mp4',
                 ]
@@ -2672,7 +2766,7 @@ class YouTubeDownloader:
                 # Build ffmpeg postprocessor args for video (only if volume changed)
                 if volume_multiplier != 1.0:
                     # Need to re-encode for volume adjustment
-                    ffmpeg_video_args = ['-c:v', 'libx264', '-crf', '23', '-preset', 'faster', '-c:a', 'aac', '-b:a', '128k']
+                    ffmpeg_video_args = ['-c:v', 'libx264', '-crf', str(VIDEO_CRF), '-preset', 'faster', '-c:a', 'aac', '-b:a', AUDIO_BITRATE]
                     ffmpeg_video_args.extend(['-af', f'volume={volume_multiplier}'])
                     cmd.extend(['--postprocessor-args', 'ffmpeg:' + ' '.join(ffmpeg_video_args)])
 
@@ -2703,7 +2797,7 @@ class YouTubeDownloader:
                 if '[download]' in line and '%' in line:
                     try:
                         # Extract percentage
-                        match = re.search(r'(\d+\.?\d*)%', line)
+                        match = PROGRESS_REGEX.search(line)
                         if match:
                             progress = float(match.group(1))
                             self.update_progress(progress)
