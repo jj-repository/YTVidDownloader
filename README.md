@@ -54,9 +54,16 @@ A professional YouTube video downloader with advanced trimming capabilities, cli
 
 ## 🚀 Installation
 
-### For End Users (Standalone)
+### For End Users (Standalone Executables)
 
-Download the pre-built release from the [Releases](../../releases) page and follow the included README.
+**📦 Zero installation required!** Download the pre-built executable for your platform:
+
+- **Windows**: Download `YoutubeDownloader-Windows.zip`, extract, and run `YoutubeDownloader.exe`
+- **Linux**: Download `YoutubeDownloader-Linux.tar.gz`, extract, and run `./YoutubeDownloader`
+
+All dependencies (ffmpeg, ffprobe, yt-dlp) are bundled inside the executable. Just download and run - no additional software needed!
+
+Get the latest release from the [Releases](../../releases) page.
 
 ### For Developers
 
@@ -172,7 +179,11 @@ These settings provide the best balance between file size and quality, keeping d
   - 5-minute stall detection (no progress)
 - **Memory Efficient**: Automatic cleanup of temp files and old cache entries
 
-### Dependencies
+### Dependencies (Development Only)
+
+**Note:** End users using standalone executables don't need to install anything - all dependencies are bundled!
+
+For developers running from source:
 
 - **Python 3.6+**
 - **yt-dlp >= 2024.11.0**: YouTube download engine
@@ -180,12 +191,20 @@ These settings provide the best balance between file size and quality, keeping d
 - **catboxpy >= 0.1.0**: File upload to catbox.moe
 - **pyperclip >= 1.8.0**: Clipboard access
 - **dbus-python** (Linux only, optional): KDE Klipper integration
-- **ffmpeg**: Video/audio processing
+- **ffmpeg**: Video/audio processing (bundled in standalone builds)
 - **tkinter**: GUI (usually included with Python)
 
 ## 📋 Requirements
 
+### For Standalone Executables (End Users)
+- **OS**: Linux (64-bit), Windows (64-bit)
+- **Disk Space**: ~200 MB for application (includes bundled dependencies), plus space for downloads
+- **RAM**: ~100 MB during operation
+- **Internet**: Required for downloading videos
+
+### For Running from Source (Developers)
 - **OS**: Linux, macOS, Windows
+- **Python**: 3.6 or higher
 - **Disk Space**: ~20 MB for application, plus space for downloads
 - **RAM**: ~100 MB during operation
 - **Internet**: Required for downloading
@@ -194,8 +213,9 @@ These settings provide the best balance between file size and quality, keeping d
 
 ### Common Issues
 
-**"yt-dlp or ffmpeg not found"**
-- Install system dependencies as shown in the installation section
+**"yt-dlp or ffmpeg not found"** (Running from source only)
+- This shouldn't happen with standalone executables (dependencies are bundled)
+- For developers running from source: Install system dependencies as shown in the installation section
 - Restart the application after installing
 
 **Preview frames not loading**
