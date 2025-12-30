@@ -76,9 +76,10 @@ class YouTubeDownloader:
         self.download_start_time = None
         self.timeout_monitor_thread = None
 
-        # Detect bundled ffmpeg/ffprobe (when packaged with PyInstaller)
+        # Detect bundled executables (when packaged with PyInstaller)
         self.ffmpeg_path = self._get_bundled_executable('ffmpeg')
         self.ffprobe_path = self._get_bundled_executable('ffprobe')
+        self.ytdlp_path = self._get_bundled_executable('yt-dlp')
 
         # Frame preview variables
         self.start_preview_image = None
@@ -111,9 +112,6 @@ class YouTubeDownloader:
 
         # Initialize temp directory with cleanup on exit
         self._init_temp_directory()
-
-        # Find yt-dlp executable
-        self.ytdlp_path = self.find_ytdlp()
 
         # Check dependencies once at startup
         self.dependencies_ok = self.check_dependencies()
