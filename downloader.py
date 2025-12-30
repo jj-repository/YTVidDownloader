@@ -84,6 +84,35 @@ CATBOX_MAX_SIZE_MB = 200  # Catbox file size limit
 MAX_FILENAME_LENGTH = 200  # Maximum filename length
 DEFAULT_VIDEO_QUALITY = "480"  # Default video quality preset
 
+# UI Constants
+CLIPBOARD_URL_LIST_HEIGHT = 66  # Height for clipboard URL list (reduced from 200)
+
+# File paths for persistence
+UPLOAD_HISTORY_FILE = Path.home() / ".ytviddownloader" / "upload_history.txt"
+CLIPBOARD_URLS_FILE = Path.home() / ".ytviddownloader" / "clipboard_urls.json"
+
+# Theme colors
+THEMES = {
+    'light': {
+        'bg': '#f0f0f0',
+        'fg': '#000000',
+        'select_bg': '#0078d7',
+        'select_fg': '#ffffff',
+        'button_bg': '#e1e1e1',
+        'entry_bg': '#ffffff',
+        'frame_bg': '#f0f0f0'
+    },
+    'dark': {
+        'bg': '#2b2b2b',
+        'fg': '#ffffff',
+        'select_bg': '#0078d7',
+        'select_fg': '#ffffff',
+        'button_bg': '#3c3c3c',
+        'entry_bg': '#1e1e1e',
+        'frame_bg': '#2b2b2b'
+    }
+}
+
 # Compiled regex patterns for performance
 PROGRESS_REGEX = re.compile(r'(\d+\.?\d*)%')
 SPEED_REGEX = re.compile(r'(\d+\.?\d*\s*[KMG]iB/s)')
@@ -171,6 +200,19 @@ class YouTubeDownloader:
         self.clipboard_url_widgets = {}
         self.klipper_interface = None  # KDE Klipper D-Bus interface
 
+        # Theme mode
+        self.current_theme = 'light'  # Default to light theme
+
+        # Auto-upload feature
+        self.auto_upload_var = tk.BooleanVar(value=False)  # Auto-upload after download/trim
+
+        # Uploader tab variables
+        self.uploader_file_path = None
+        self.uploader_is_uploading = False
+
+        # Load persisted clipboard URLs
+        self._load_clipboard_urls()
+
         # Try to connect to KDE Klipper
         if DBUS_AVAILABLE:
             try:
@@ -189,6 +231,122 @@ class YouTubeDownloader:
 
         # Bind cleanup on window close
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+
+    # Persistence methods
+
+    def _load_clipboard_urls(self):
+        """Load persisted clipboard URLs from previous session"""
+        try:
+            if CLIPBOARD_URLS_FILE.exists():
+                with open(CLIPBOARD_URLS_FILE, 'r') as f:
+                    import json
+                    data = json.load(f)
+                    # Store URLs, will be restored to UI after setup_ui() completes
+                    self.persisted_clipboard_urls = data.get('urls', [])
+                    logger.info(f"Loaded {len(self.persisted_clipboard_urls)} persisted clipboard URLs")
+            else:
+                self.persisted_clipboard_urls = []
+        except Exception as e:
+            logger.error(f"Error loading clipboard URLs: {e}")
+            self.persisted_clipboard_urls = []
+
+    def _save_clipboard_urls(self):
+        """Save clipboard URLs to file for persistence between sessions"""
+        try:
+            CLIPBOARD_URLS_FILE.parent.mkdir(parents=True, exist_ok=True)
+            import json
+            # Save only pending and failed URLs (not completed ones)
+            urls_to_save = [
+                {'url': item['url'], 'status': item['status']}
+                for item in self.clipboard_url_list
+                if item['status'] in ['pending', 'failed']
+            ]
+            with open(CLIPBOARD_URLS_FILE, 'w') as f:
+                json.dump({'urls': urls_to_save}, f, indent=2)
+            logger.info(f"Saved {len(urls_to_save)} clipboard URLs")
+        except Exception as e:
+            logger.error(f"Error saving clipboard URLs: {e}")
+
+    def _restore_clipboard_urls(self):
+        """Restore persisted URLs to the UI (called after setup_ui)"""
+        if hasattr(self, 'persisted_clipboard_urls') and self.persisted_clipboard_urls:
+            for url_data in self.persisted_clipboard_urls:
+                url = url_data.get('url', '')
+                status = url_data.get('status', 'pending')
+                if url and url not in [item['url'] for item in self.clipboard_url_list]:
+                    self._add_url_to_clipboard_list(url)
+                    if status == 'failed':
+                        self._update_url_status(url, 'failed')
+            logger.info(f"Restored {len(self.persisted_clipboard_urls)} URLs to clipboard list")
+
+    def save_upload_link(self, link, filename=""):
+        """Save uploaded video link to history file"""
+        try:
+            UPLOAD_HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
+            with open(UPLOAD_HISTORY_FILE, 'a') as f:
+                timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+                f.write(f"{timestamp} | {filename} | {link}\n")
+            logger.info(f"Saved upload link to history: {link}")
+        except Exception as e:
+            logger.error(f"Error saving upload link: {e}")
+
+    def view_link_history(self):
+        """View upload link history in a new window"""
+        history_window = tk.Toplevel(self.root)
+        history_window.title("Upload Link History")
+        history_window.geometry("800x500")
+
+        # Create text widget with scrollbar
+        frame = ttk.Frame(history_window, padding="10")
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        scrollbar = ttk.Scrollbar(frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        text_widget = tk.Text(frame, wrap=tk.WORD, yscrollcommand=scrollbar.set, font=('Consolas', 9))
+        text_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.config(command=text_widget.yview)
+
+        # Load and display history
+        try:
+            if UPLOAD_HISTORY_FILE.exists():
+                with open(UPLOAD_HISTORY_FILE, 'r') as f:
+                    content = f.read()
+                    if content:
+                        text_widget.insert('1.0', content)
+                    else:
+                        text_widget.insert('1.0', "No upload history yet.")
+            else:
+                text_widget.insert('1.0', "No upload history yet.")
+        except Exception as e:
+            text_widget.insert('1.0', f"Error loading history: {e}")
+
+        text_widget.config(state='disabled')  # Make read-only
+
+        # Add copy and clear buttons
+        button_frame = ttk.Frame(history_window, padding="10")
+        button_frame.pack(fill=tk.X)
+
+        def copy_all():
+            self.root.clipboard_clear()
+            self.root.clipboard_append(text_widget.get('1.0', tk.END))
+            messagebox.showinfo("Copied", "History copied to clipboard!")
+
+        def clear_history():
+            if messagebox.askyesno("Clear History", "Are you sure you want to clear all upload history?"):
+                try:
+                    if UPLOAD_HISTORY_FILE.exists():
+                        UPLOAD_HISTORY_FILE.unlink()
+                    text_widget.config(state='normal')
+                    text_widget.delete('1.0', tk.END)
+                    text_widget.insert('1.0', "No upload history yet.")
+                    text_widget.config(state='disabled')
+                except Exception as e:
+                    messagebox.showerror("Error", f"Failed to clear history: {e}")
+
+        ttk.Button(button_frame, text="Copy All", command=copy_all).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Clear History", command=clear_history).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Close", command=history_window.destroy).pack(side=tk.RIGHT, padx=5)
 
     def retry_network_operation(self, operation, operation_name, *args, **kwargs):
         """Retry a network operation with exponential backoff"""
@@ -570,6 +728,10 @@ class YouTubeDownloader:
         main_tab_frame = ttk.Frame(self.notebook, padding="20")
         self.notebook.add(main_tab_frame, text="Trimmer")
 
+        # Uploader tab (third tab)
+        uploader_tab_frame = ttk.Frame(self.notebook, padding="20")
+        self.notebook.add(uploader_tab_frame, text="Uploader")
+
         ttk.Label(main_tab_frame, text="YouTube URL or Local File:", font=('Arial', 12)).grid(row=0, column=0, sticky=tk.W, pady=(0, 10))
 
         # URL/File input frame
@@ -775,12 +937,21 @@ class YouTubeDownloader:
         self.upload_btn = ttk.Button(upload_frame, text="Upload to Catbox.moe", command=self.start_upload, state='disabled')
         self.upload_btn.pack(side=tk.LEFT, padx=(0, 10))
 
+        ttk.Button(upload_frame, text="View Link History", command=self.view_link_history).pack(side=tk.LEFT, padx=(0, 10))
+
         self.upload_status_label = ttk.Label(upload_frame, text="", foreground="blue", font=('Arial', 9))
         self.upload_status_label.pack(side=tk.LEFT)
 
+        # Auto-upload checkbox
+        auto_upload_frame = ttk.Frame(main_tab_frame)
+        auto_upload_frame.grid(row=24, column=0, columnspan=2, sticky=tk.W, padx=(20, 0), pady=(5, 0))
+
+        ttk.Checkbutton(auto_upload_frame, text="Auto-upload after download/trim completes",
+                       variable=self.auto_upload_var).pack(side=tk.LEFT)
+
         # Upload URL display (initially hidden)
         self.upload_url_frame = ttk.Frame(main_tab_frame)
-        self.upload_url_frame.grid(row=24, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 5))
+        self.upload_url_frame.grid(row=25, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 5))
 
         ttk.Label(self.upload_url_frame, text="Upload URL:", font=('Arial', 9, 'bold')).pack(side=tk.LEFT, padx=(0, 5))
 
@@ -795,6 +966,12 @@ class YouTubeDownloader:
 
         # Setup Clipboard Mode UI (tab was created at the beginning)
         self.setup_clipboard_mode_ui(clipboard_tab_frame)
+
+        # Setup Uploader UI
+        self.setup_uploader_ui(uploader_tab_frame)
+
+        # Restore persisted clipboard URLs
+        self._restore_clipboard_urls()
 
         # Bind tab change event
         self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
@@ -862,7 +1039,7 @@ class YouTubeDownloader:
         url_list_container.grid(row=10, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
         parent.grid_rowconfigure(10, weight=1)
 
-        self.clipboard_url_canvas = tk.Canvas(url_list_container, height=200, bg='white',
+        self.clipboard_url_canvas = tk.Canvas(url_list_container, height=CLIPBOARD_URL_LIST_HEIGHT, bg='white',
                                              highlightthickness=1, highlightbackground='gray')
         url_scrollbar = ttk.Scrollbar(url_list_container, orient="vertical",
                                       command=self.clipboard_url_canvas.yview)
@@ -908,6 +1085,63 @@ class YouTubeDownloader:
         # Status
         self.clipboard_status_label = ttk.Label(parent, text="Ready", foreground="green")
         self.clipboard_status_label.grid(row=17, column=0, columnspan=2, pady=(10, 0))
+
+    def setup_uploader_ui(self, parent):
+        """Setup Uploader tab UI"""
+
+        # Header
+        ttk.Label(parent, text="Upload Local File", font=('Arial', 14, 'bold')).grid(
+            row=0, column=0, columnspan=2, sticky=tk.W, pady=(0, 10))
+
+        ttk.Label(parent, text="Upload local video files to Catbox.moe streaming service.",
+                  foreground="gray", font=('Arial', 9)).grid(
+            row=1, column=0, columnspan=2, sticky=tk.W, pady=(0, 15))
+
+        # File selection
+        ttk.Separator(parent, orient='horizontal').grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=10)
+
+        ttk.Label(parent, text="Select File:", font=('Arial', 11, 'bold')).grid(row=3, column=0, sticky=tk.W, pady=(0, 5))
+
+        file_select_frame = ttk.Frame(parent)
+        file_select_frame.grid(row=4, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
+
+        self.uploader_file_label = ttk.Label(file_select_frame, text="No file selected", foreground="gray", font=('Arial', 9))
+        self.uploader_file_label.pack(side=tk.LEFT, padx=(0, 10))
+
+        ttk.Button(file_select_frame, text="Browse File", command=self.browse_uploader_file).pack(side=tk.LEFT)
+
+        # File info
+        self.uploader_filesize_label = ttk.Label(parent, text="", foreground="blue", font=('Arial', 9))
+        self.uploader_filesize_label.grid(row=5, column=0, columnspan=2, sticky=tk.W, pady=(0, 10))
+
+        # Upload controls
+        ttk.Separator(parent, orient='horizontal').grid(row=6, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=10)
+
+        upload_controls_frame = ttk.Frame(parent)
+        upload_controls_frame.grid(row=7, column=0, columnspan=2, sticky=tk.W, pady=(0, 10))
+
+        self.uploader_upload_btn = ttk.Button(upload_controls_frame, text="Upload to Catbox.moe",
+                                              command=self.start_uploader_upload, state='disabled')
+        self.uploader_upload_btn.pack(side=tk.LEFT, padx=(0, 10))
+
+        ttk.Button(upload_controls_frame, text="View Link History", command=self.view_link_history).pack(side=tk.LEFT)
+
+        self.uploader_status_label = ttk.Label(parent, text="", foreground="blue", font=('Arial', 9))
+        self.uploader_status_label.grid(row=8, column=0, columnspan=2, sticky=tk.W, pady=(5, 10))
+
+        # Upload URL display (initially hidden)
+        self.uploader_url_frame = ttk.Frame(parent)
+        self.uploader_url_frame.grid(row=9, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 5))
+
+        ttk.Label(self.uploader_url_frame, text="Upload URL:", font=('Arial', 9, 'bold')).pack(side=tk.LEFT, padx=(0, 5))
+
+        self.uploader_url_entry = ttk.Entry(self.uploader_url_frame, width=60, state='readonly')
+        self.uploader_url_entry.pack(side=tk.LEFT, padx=(0, 10))
+
+        ttk.Button(self.uploader_url_frame, text="Copy URL", command=self.copy_uploader_url).pack(side=tk.LEFT)
+
+        # Hide URL frame initially
+        self.uploader_url_frame.grid_remove()
 
     # Phase 4: Tab Management & Clipboard Monitoring
 
@@ -1099,6 +1333,9 @@ class YouTubeDownloader:
         if len(self.clipboard_url_list) > 0 and not self.clipboard_downloading:
             self.clipboard_download_btn.config(state='normal')
 
+        # Save URLs to persistence file
+        self._save_clipboard_urls()
+
     def _remove_url_from_list(self, url):
         """Remove URL from clipboard list"""
         for i, item in enumerate(self.clipboard_url_list):
@@ -1112,6 +1349,9 @@ class YouTubeDownloader:
                 if len(self.clipboard_url_list) == 0:
                     self.clipboard_download_btn.config(state='disabled')
                 logger.info(f"Removed URL: {url}")
+
+                # Save URLs to persistence file
+                self._save_clipboard_urls()
                 break
 
     def clear_all_clipboard_urls(self):
@@ -1129,6 +1369,9 @@ class YouTubeDownloader:
         self._update_clipboard_url_count()
         self.clipboard_download_btn.config(state='disabled')
         logger.info("Cleared all clipboard URLs")
+
+        # Save URLs to persistence file
+        self._save_clipboard_urls()
 
     def _update_clipboard_url_count(self):
         """Update URL count label"""
@@ -1913,6 +2156,10 @@ class YouTubeDownloader:
         # Re-enable upload button for re-uploading if needed
         self.upload_btn.config(state='normal')
 
+        # Save upload link to history
+        filename = os.path.basename(self.last_output_file) if self.last_output_file else "unknown"
+        self.save_upload_link(file_url, filename)
+
         messagebox.showinfo("Upload Complete",
                           f"File uploaded successfully!\n\nURL: {file_url}\n\n"
                           "The URL has been copied to your clipboard.")
@@ -1935,6 +2182,125 @@ class YouTubeDownloader:
             self.root.clipboard_append(url)
             self.upload_status_label.config(text="URL copied to clipboard!", foreground="green")
             logger.info("Upload URL copied to clipboard")
+
+    # Uploader tab methods
+
+    def browse_uploader_file(self):
+        """Browse and select a file for upload in Uploader tab"""
+        file_path = filedialog.askopenfilename(
+            title="Select Video File",
+            filetypes=[
+                ("Video files", "*.mp4 *.avi *.mkv *.mov *.flv *.wmv *.webm *.m4v"),
+                ("Audio files", "*.mp3 *.m4a *.wav *.flac *.aac *.ogg"),
+                ("All files", "*.*")
+            ]
+        )
+
+        if file_path:
+            self.uploader_file_path = file_path
+            filename = os.path.basename(file_path)
+            self.uploader_file_label.config(text=filename, foreground="black")
+
+            # Show file size
+            file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+            if file_size_mb > 200:
+                self.uploader_filesize_label.config(
+                    text=f"File size: {file_size_mb:.1f} MB (exceeds 200MB limit - cannot upload)",
+                    foreground="red"
+                )
+                self.uploader_upload_btn.config(state='disabled')
+            else:
+                self.uploader_filesize_label.config(
+                    text=f"File size: {file_size_mb:.1f} MB",
+                    foreground="green"
+                )
+                self.uploader_upload_btn.config(state='normal')
+
+            logger.info(f"Selected file for upload: {file_path}")
+
+    def start_uploader_upload(self):
+        """Start upload to Catbox.moe in Uploader tab"""
+        if not self.uploader_file_path or not os.path.isfile(self.uploader_file_path):
+            messagebox.showerror("Error", "No file selected. Please browse and select a file first.")
+            return
+
+        # Check file size (200MB limit for Catbox.moe)
+        file_size_mb = os.path.getsize(self.uploader_file_path) / (1024 * 1024)
+        if file_size_mb > 200:
+            messagebox.showerror("File Too Large",
+                               f"File size ({file_size_mb:.1f} MB) exceeds Catbox.moe's 200MB limit.")
+            return
+
+        # Disable upload button during upload
+        self.uploader_upload_btn.config(state='disabled')
+        self.uploader_status_label.config(text="Uploading...", foreground="blue")
+        self.uploader_url_frame.grid_remove()
+
+        # Start upload in background thread
+        upload_thread = threading.Thread(target=self.uploader_upload_to_catbox, daemon=True)
+        upload_thread.start()
+
+    def uploader_upload_to_catbox(self):
+        """Upload file to Catbox.moe from Uploader tab"""
+        try:
+            self.uploader_is_uploading = True
+            logger.info(f"Starting upload to Catbox.moe from Uploader tab: {self.uploader_file_path}")
+
+            # Upload file using catboxpy
+            file_url = self.catbox_client.upload(self.uploader_file_path)
+
+            # Update UI on success
+            self.root.after(0, lambda: self._uploader_upload_success(file_url))
+            logger.info(f"Upload successful: {file_url}")
+
+        except Exception as e:
+            error_msg = str(e)
+            self.root.after(0, lambda: self._uploader_upload_failed(error_msg))
+            logger.exception(f"Upload failed: {e}")
+
+        finally:
+            self.uploader_is_uploading = False
+
+    def _uploader_upload_success(self, file_url):
+        """Handle successful upload from Uploader tab"""
+        self.uploader_status_label.config(text="Upload complete!", foreground="green")
+
+        # Show URL in entry field
+        self.uploader_url_entry.config(state='normal')
+        self.uploader_url_entry.delete(0, tk.END)
+        self.uploader_url_entry.insert(0, file_url)
+        self.uploader_url_entry.config(state='readonly')
+        self.uploader_url_frame.grid()
+
+        # Re-enable upload button for re-uploading if needed
+        self.uploader_upload_btn.config(state='normal')
+
+        # Save upload link to history
+        filename = os.path.basename(self.uploader_file_path) if self.uploader_file_path else "unknown"
+        self.save_upload_link(file_url, filename)
+
+        messagebox.showinfo("Upload Complete",
+                          f"File uploaded successfully!\n\nURL: {file_url}\n\n"
+                          "The URL has been copied to your clipboard.")
+
+        # Auto-copy to clipboard
+        self.root.clipboard_clear()
+        self.root.clipboard_append(file_url)
+
+    def _uploader_upload_failed(self, error_msg):
+        """Handle failed upload from Uploader tab"""
+        self.uploader_status_label.config(text="Upload failed", foreground="red")
+        self.uploader_upload_btn.config(state='normal')
+        messagebox.showerror("Upload Failed", f"Failed to upload file:\n\n{error_msg}")
+
+    def copy_uploader_url(self):
+        """Copy upload URL to clipboard from Uploader tab"""
+        url = self.uploader_url_entry.get()
+        if url:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(url)
+            self.uploader_status_label.config(text="URL copied to clipboard!", foreground="green")
+            logger.info("Upload URL copied to clipboard from Uploader tab")
 
     def _find_latest_file(self):
         """Find the most recently created file in the download directory"""
@@ -1962,6 +2328,11 @@ class YouTubeDownloader:
             self.last_output_file = filepath
             self.upload_btn.config(state='normal')
             logger.info(f"Upload enabled for: {filepath}")
+
+            # Auto-upload if enabled
+            if self.auto_upload_var.get():
+                logger.info("Auto-upload enabled, starting upload...")
+                self.root.after(500, self.start_upload)  # Small delay to ensure UI updates
 
     def schedule_preview_update(self):
         """Schedule preview update with debouncing to avoid excessive calls"""
