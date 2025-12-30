@@ -288,6 +288,29 @@ TRANSLATIONS = {
         'error_ytdlp_not_found': 'yt-dlp not found. Please ensure it is installed.',
         'error_failed_clear_history': 'Failed to clear history: {error}',
         'status_auto_download_stopped': 'Auto-download stopped',
+
+        # Additional UI labels
+        'label_selected_duration_value': 'Selected Duration: {duration}',
+        'label_video_title': 'Title: {title}',
+        'label_file': 'File: {filename}',
+        'label_estimated_size': 'Estimated size: {size} MB',
+        'label_estimated_size_trimmed': 'Estimated size (trimmed): {size} MB',
+        'label_estimated_size_unknown': 'Estimated size: Unknown',
+        'label_calculating_size': 'Calculating size...',
+        'label_file_size': '{filename} ({size} MB)',
+
+        # Additional status messages
+        'status_clipboard_downloading': 'Downloading: {url}...',
+        'status_clipboard_completed_total': 'Completed: {completed}/{total} videos',
+        'status_downloading_detailed': 'Downloading... {progress}%',
+        'status_downloading_with_speed': 'Downloading... {progress}% at {speed}',
+        'status_downloading_full': 'Downloading... {progress}% at {speed} | ETA: {eta}',
+
+        # Additional error messages
+        'error_url_empty': 'URL is empty',
+        'error_permission_denied': 'Permission denied. Check write permissions for download folder.',
+        'error_os_error': 'OS error: {error}',
+        'error_generic': 'Error: {error}',
     },
 
     'de': {
@@ -481,6 +504,29 @@ TRANSLATIONS = {
         'error_ytdlp_not_found': 'yt-dlp nicht gefunden. Bitte stellen Sie sicher, dass es installiert ist.',
         'error_failed_clear_history': 'Verlauf konnte nicht gelöscht werden: {error}',
         'status_auto_download_stopped': 'Automatischer Download gestoppt',
+
+        # Additional UI labels
+        'label_selected_duration_value': 'Ausgewählte Dauer: {duration}',
+        'label_video_title': 'Titel: {title}',
+        'label_file': 'Datei: {filename}',
+        'label_estimated_size': 'Geschätzte Größe: {size} MB',
+        'label_estimated_size_trimmed': 'Geschätzte Größe (zugeschnitten): {size} MB',
+        'label_estimated_size_unknown': 'Geschätzte Größe: Unbekannt',
+        'label_calculating_size': 'Größe wird berechnet...',
+        'label_file_size': '{filename} ({size} MB)',
+
+        # Additional status messages
+        'status_clipboard_downloading': 'Herunterladen: {url}...',
+        'status_clipboard_completed_total': 'Abgeschlossen: {completed}/{total} Videos',
+        'status_downloading_detailed': 'Herunterladen... {progress}%',
+        'status_downloading_with_speed': 'Herunterladen... {progress}% bei {speed}',
+        'status_downloading_full': 'Herunterladen... {progress}% bei {speed} | ETA: {eta}',
+
+        # Additional error messages
+        'error_url_empty': 'URL ist leer',
+        'error_permission_denied': 'Zugriff verweigert. Überprüfen Sie die Schreibrechte für den Download-Ordner.',
+        'error_os_error': 'OS-Fehler: {error}',
+        'error_generic': 'Fehler: {error}',
     },
 
     'pl': {
@@ -674,6 +720,29 @@ TRANSLATIONS = {
         'error_ytdlp_not_found': 'yt-dlp nie został znaleziony. Upewnij się, że jest zainstalowany.',
         'error_failed_clear_history': 'Nie udało się wyczyścić historii: {error}',
         'status_auto_download_stopped': 'Automatyczne pobieranie zatrzymane',
+
+        # Additional UI labels
+        'label_selected_duration_value': 'Wybrany czas trwania: {duration}',
+        'label_video_title': 'Tytuł: {title}',
+        'label_file': 'Plik: {filename}',
+        'label_estimated_size': 'Szacowany rozmiar: {size} MB',
+        'label_estimated_size_trimmed': 'Szacowany rozmiar (przycięty): {size} MB',
+        'label_estimated_size_unknown': 'Szacowany rozmiar: Nieznany',
+        'label_calculating_size': 'Obliczanie rozmiaru...',
+        'label_file_size': '{filename} ({size} MB)',
+
+        # Additional status messages
+        'status_clipboard_downloading': 'Pobieranie: {url}...',
+        'status_clipboard_completed_total': 'Ukończono: {completed}/{total} filmów',
+        'status_downloading_detailed': 'Pobieranie... {progress}%',
+        'status_downloading_with_speed': 'Pobieranie... {progress}% przy {speed}',
+        'status_downloading_full': 'Pobieranie... {progress}% przy {speed} | ETA: {eta}',
+
+        # Additional error messages
+        'error_url_empty': 'URL jest pusty',
+        'error_permission_denied': 'Dostęp zabroniony. Sprawdź uprawnienia zapisu dla folderu pobierania.',
+        'error_os_error': 'Błąd systemu: {error}',
+        'error_generic': 'Błąd: {error}',
     }
 }
 
@@ -1265,7 +1334,7 @@ class YouTubeDownloader:
     def validate_youtube_url(self, url):
         """Validate if URL is a valid YouTube URL"""
         if not url:
-            return False, "URL is empty"
+            return False, tr('error_url_empty')
 
         try:
             parsed = urlparse(url)
@@ -2173,9 +2242,9 @@ class YouTubeDownloader:
         failed = sum(1 for item in self.clipboard_url_list if item['status'] == 'failed')
 
         if failed > 0:
-            self.update_clipboard_status(f"Completed: {completed} | Failed: {failed}", "orange")
+            self.update_clipboard_status(tr('status_completed_failed', completed=completed, failed=failed), "orange")
         else:
-            self.update_clipboard_status(f"All downloads complete! ({completed} videos)", "green")
+            self.update_clipboard_status(tr('status_all_downloads_complete', count=completed), "green")
 
         logger.info(f"Clipboard batch download finished: {completed} completed, {failed} failed")
 
@@ -2219,7 +2288,7 @@ class YouTubeDownloader:
             self.root.after(0, lambda: self._update_url_status(url, 'pending'))
             return
 
-        self.root.after(0, lambda: self.update_clipboard_status(f"Auto-downloading: {url[:50]}...", "blue"))
+        self.root.after(0, lambda: self.update_clipboard_status(tr('status_auto_downloading', url=url[:50]), "blue"))
 
         success = self._download_clipboard_url(url, check_stop_auto=True)
 
@@ -2237,14 +2306,14 @@ class YouTubeDownloader:
         if success:
             self._update_url_status(url, 'completed')
             self._update_auto_download_total()
-            self.update_clipboard_status(f"Auto-download complete: {url[:50]}...", "green")
+            self.update_clipboard_status(tr('status_auto_download_complete', url=url[:50]), "green")
             # Auto-remove successfully completed URLs from list
             self._remove_url_from_list(url)
             logger.info(f"Auto-download completed and removed: {url}")
         else:
             self._update_url_status(url, 'failed')
             self._update_auto_download_total()
-            self.update_clipboard_status(f"Auto-download failed: {url[:50]}...", "red")
+            self.update_clipboard_status(tr('status_auto_download_failed', url=url[:50]), "red")
             logger.info(f"Auto-download failed: {url}")
 
         # Now check for next pending download (all state is consistent now)
@@ -2274,14 +2343,19 @@ class YouTubeDownloader:
         """Update total progress for auto-downloads"""
         total = len(self.clipboard_url_list)
         completed = sum(1 for item in self.clipboard_url_list if item['status'] in ['completed', 'failed'])
-        self.clipboard_total_label.config(text=f"Completed: {completed}/{total} videos")
+        self.clipboard_total_label.config(text=tr('status_clipboard_completed_total', completed=completed, total=total))
 
     # Phase 7: Helper Methods
 
     def update_clipboard_progress(self, value):
         """Update clipboard mode progress bar"""
-        self.clipboard_progress['value'] = value
-        self.clipboard_progress_label.config(text=f"{value:.1f}%")
+        try:
+            value = float(value)
+            value = max(0, min(100, value))  # Clamp to 0-100
+            self.clipboard_progress['value'] = value
+            self.clipboard_progress_label.config(text=f"{value:.1f}%")
+        except (ValueError, TypeError) as e:
+            logger.warning(f"Invalid progress value: {value} - {e}")
 
     def update_clipboard_status(self, message, color):
         """Update clipboard mode status label"""
@@ -2473,12 +2547,12 @@ class YouTubeDownloader:
                 self.end_time_entry.insert(0, self.seconds_to_hms(self.video_duration))
 
                 # Update duration label
-                self.trim_duration_label.config(text=f"Selected Duration: {self.seconds_to_hms(self.video_duration)}")
+                self.trim_duration_label.config(text=tr('label_selected_duration_value', duration=self.seconds_to_hms(self.video_duration)))
 
                 # Display video title if available
                 if title_result and title_result.returncode == 0:
                     video_title = title_result.stdout.strip()
-                    self.video_info_label.config(text=f"Title: {video_title}")
+                    self.video_info_label.config(text=tr('label_video_title', title=video_title))
                     logger.info(f"Video title: {video_title}")
 
                 # Fetch estimated file size
@@ -2550,10 +2624,10 @@ class YouTubeDownloader:
     def _update_filesize_display(self, filesize_bytes, filesize_mb):
         """Update file size display on main thread"""
         if filesize_bytes and filesize_mb:
-            self.filesize_label.config(text=f"Estimated size: {filesize_mb:.1f} MB")
+            self.filesize_label.config(text=tr('label_estimated_size', size=f"{filesize_mb:.1f}"))
             self.estimated_filesize = filesize_bytes
         elif filesize_mb is None and filesize_bytes is None:
-            self.filesize_label.config(text="Estimated size: Unknown")
+            self.filesize_label.config(text=tr('label_estimated_size_unknown'))
             self.estimated_filesize = None
 
         # Update trimmed size if trimming is enabled
@@ -2564,7 +2638,7 @@ class YouTubeDownloader:
         # Only re-fetch if we have a valid URL and have already fetched duration
         if self.current_video_url and self.video_duration > 0 and not self.is_playlist:
             # Show loading indicator
-            self.filesize_label.config(text="Calculating size...")
+            self.filesize_label.config(text=tr('label_calculating_size'))
             # Re-fetch file size with new quality setting (in background)
             self._fetch_file_size(self.current_video_url)
 
@@ -2574,7 +2648,7 @@ class YouTubeDownloader:
             # If no size estimate or trimming disabled, show original size
             if self.estimated_filesize:
                 filesize_mb = self.estimated_filesize / (1024 * 1024)
-                self.filesize_label.config(text=f"Estimated size: {filesize_mb:.1f} MB")
+                self.filesize_label.config(text=tr('label_estimated_size', size=f"{filesize_mb:.1f}"))
             return
 
         # Calculate trimmed size using linear approach
@@ -2586,7 +2660,7 @@ class YouTubeDownloader:
             duration_percentage = selected_duration / self.video_duration
             trimmed_size = self.estimated_filesize * duration_percentage
             trimmed_size_mb = trimmed_size / (1024 * 1024)
-            self.filesize_label.config(text=f"Estimated size (trimmed): {trimmed_size_mb:.1f} MB")
+            self.filesize_label.config(text=tr('label_estimated_size_trimmed', size=f"{trimmed_size_mb:.1f}"))
 
     def _fetch_local_file_duration(self, filepath):
         """Fetch duration from local file using ffprobe"""
@@ -2620,10 +2694,10 @@ class YouTubeDownloader:
             self.end_time_entry.insert(0, self.seconds_to_hms(self.video_duration))
 
             # Update duration label
-            self.trim_duration_label.config(text=f"Selected Duration: {self.seconds_to_hms(self.video_duration)}")
+            self.trim_duration_label.config(text=tr('label_selected_duration_value', duration=self.seconds_to_hms(self.video_duration)))
 
             # Display filename
-            self.video_info_label.config(text=f"File: {video_title}")
+            self.video_info_label.config(text=tr('label_file', filename=video_title))
             logger.info(f"Local file duration: {self.video_duration}s")
 
             self.update_status(tr('status_duration_fetched'), "green")
@@ -2674,7 +2748,7 @@ class YouTubeDownloader:
 
         # Update selected duration
         selected_duration = end_time - start_time
-        self.trim_duration_label.config(text=f"Selected Duration: {self.seconds_to_hms(selected_duration)}")
+        self.trim_duration_label.config(text=tr('label_selected_duration_value', duration=self.seconds_to_hms(selected_duration)))
 
         # Update file size based on trim selection
         self._update_trimmed_filesize()
@@ -2872,7 +2946,7 @@ class YouTubeDownloader:
         filename = os.path.basename(file_path)
         file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
 
-        file_label = ttk.Label(file_frame, text=f"{filename} ({file_size_mb:.1f} MB)", font=('Arial', 9))
+        file_label = ttk.Label(file_frame, text=tr('label_file_size', filename=filename, size=f"{file_size_mb:.1f}"), font=('Arial', 9))
         file_label.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 10))
 
         remove_btn = ttk.Button(file_frame, text="X", width=3,
@@ -3464,7 +3538,7 @@ class YouTubeDownloader:
                 elapsed = current_time - self.download_start_time
                 if elapsed > DOWNLOAD_TIMEOUT:
                     logger.error(f"Download exceeded absolute timeout ({DOWNLOAD_TIMEOUT}s)")
-                    self.root.after(0, lambda: self._timeout_download("Download timeout (60 min limit exceeded)"))
+                    self.root.after(0, lambda: self._timeout_download(tr('timeout_download_absolute')))
                     break
 
             # Check progress timeout (stalled download)
@@ -3472,7 +3546,7 @@ class YouTubeDownloader:
                 time_since_progress = current_time - self.last_progress_time
                 if time_since_progress > DOWNLOAD_PROGRESS_TIMEOUT:
                     logger.error(f"Download stalled (no progress for {DOWNLOAD_PROGRESS_TIMEOUT}s)")
-                    self.root.after(0, lambda: self._timeout_download("Download stalled (no progress for 10 minutes)"))
+                    self.root.after(0, lambda: self._timeout_download(tr('timeout_download_stalled')))
                     break
 
     def _timeout_download(self, reason):
@@ -3533,7 +3607,8 @@ class YouTubeDownloader:
                     self.update_status(tr('error_fetch_duration_first'), "red")
                     self.download_btn.config(state='normal')
                     self.stop_btn.config(state='disabled')
-                    self.is_downloading = False
+                    with self.download_lock:
+                        self.is_downloading = False
                     return
 
                 start_time = int(self.start_time_var.get())
@@ -3543,7 +3618,8 @@ class YouTubeDownloader:
                     self.update_status(tr('error_invalid_time_range'), "red")
                     self.download_btn.config(state='normal')
                     self.stop_btn.config(state='disabled')
-                    self.is_downloading = False
+                    with self.download_lock:
+                        self.is_downloading = False
                     return
 
             if audio_only:
@@ -3602,7 +3678,8 @@ class YouTubeDownloader:
                     self.update_status(tr('error_select_quality'), "red")
                     self.download_btn.config(state='normal')
                     self.stop_btn.config(state='disabled')
-                    self.is_downloading = False
+                    with self.download_lock:
+                        self.is_downloading = False
                     return
 
                 height = quality
@@ -3757,21 +3834,22 @@ class YouTubeDownloader:
                 logger.error(f"Dependency not found: {e}")
         except PermissionError as e:
             if self.is_downloading:
-                error_msg = "Permission denied. Check write permissions for download folder."
+                error_msg = tr('error_permission_denied')
                 self.update_status(error_msg, "red")
                 logger.error(f"Permission error: {e}")
         except OSError as e:
             if self.is_downloading:
-                error_msg = f"OS error: {str(e)}"
+                error_msg = tr('error_os_error', error=str(e))
                 self.update_status(error_msg, "red")
                 logger.error(f"OS error during download: {e}")
         except Exception as e:
             if self.is_downloading:
-                self.update_status(f"Error: {str(e)}", "red")
+                self.update_status(tr('error_generic', error=str(e)), "red")
                 logger.exception(f"Unexpected error during download: {e}")
 
         finally:
-            self.is_downloading = False
+            with self.download_lock:
+                self.is_downloading = False
             self.download_btn.config(state='normal')
             self.stop_btn.config(state='disabled')
             self.current_process = None
@@ -3791,7 +3869,8 @@ class YouTubeDownloader:
                     self.update_status(tr('error_fetch_duration_first'), "red")
                     self.download_btn.config(state='normal')
                     self.stop_btn.config(state='disabled')
-                    self.is_downloading = False
+                    with self.download_lock:
+                        self.is_downloading = False
                     return
 
                 start_time = int(self.start_time_var.get())
@@ -3801,7 +3880,8 @@ class YouTubeDownloader:
                     self.update_status(tr('error_invalid_time_range'), "red")
                     self.download_btn.config(state='normal')
                     self.stop_btn.config(state='disabled')
-                    self.is_downloading = False
+                    with self.download_lock:
+                        self.is_downloading = False
                     return
 
             # Generate output filename
@@ -3847,7 +3927,8 @@ class YouTubeDownloader:
                     self.update_status(tr('error_select_quality'), "red")
                     self.download_btn.config(state='normal')
                     self.stop_btn.config(state='disabled')
-                    self.is_downloading = False
+                    with self.download_lock:
+                        self.is_downloading = False
                     return
 
                 height = quality
@@ -3887,7 +3968,7 @@ class YouTubeDownloader:
                         if total_duration > 0:
                             progress = min(100, (current_time / total_duration) * 100)
                             self.update_progress(progress)
-                            self.update_status(f"Processing... {progress:.1f}%", "blue")
+                            self.update_status(tr('status_processing', progress=f"{progress:.1f}"), "blue")
                             self.last_progress_time = time.time()
                     except (ValueError, IndexError):
                         pass
@@ -3913,10 +3994,11 @@ class YouTubeDownloader:
                 logger.error(f"ffmpeg not found: {e}")
         except Exception as e:
             if self.is_downloading:
-                self.update_status(f"Error: {str(e)}", "red")
+                self.update_status(tr('error_generic', error=str(e)), "red")
                 logger.exception(f"Error processing local file: {e}")
         finally:
-            self.is_downloading = False
+            with self.download_lock:
+                self.is_downloading = False
             self.download_btn.config(state='normal')
             self.stop_btn.config(state='disabled')
             self.current_process = None
@@ -3971,7 +4053,8 @@ class YouTubeDownloader:
                     self.update_status(tr('error_select_quality'), "red")
                     self.download_btn.config(state='normal')
                     self.stop_btn.config(state='disabled')
-                    self.is_downloading = False
+                    with self.download_lock:
+                        self.is_downloading = False
                     return
 
                 height = quality
@@ -4049,17 +4132,24 @@ class YouTubeDownloader:
                 logger.error(f"yt-dlp not found: {e}")
         except Exception as e:
             if self.is_downloading:
-                self.update_status(f"Error: {str(e)}", "red")
+                self.update_status(tr('error_generic', error=str(e)), "red")
                 logger.exception(f"Error downloading playlist: {e}")
         finally:
-            self.is_downloading = False
+            with self.download_lock:
+                self.is_downloading = False
             self.download_btn.config(state='normal')
             self.stop_btn.config(state='disabled')
             self.current_process = None
 
     def update_progress(self, value):
-        self.progress['value'] = value
-        self.progress_label.config(text=f"{value:.1f}%")
+        """Update main progress bar with validation"""
+        try:
+            value = float(value)
+            value = max(0, min(100, value))  # Clamp to 0-100
+            self.progress['value'] = value
+            self.progress_label.config(text=f"{value:.1f}%")
+        except (ValueError, TypeError) as e:
+            logger.warning(f"Invalid progress value: {value} - {e}")
 
     def update_status(self, message, color):
         self.status_label.config(text=message, foreground=color)
