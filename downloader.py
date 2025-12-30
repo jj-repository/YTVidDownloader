@@ -64,12 +64,25 @@ VIDEO_CRF = 23  # Video quality (lower = better, 18-28 range)
 AUDIO_BITRATE = '128k'  # Audio bitrate for downloads
 BUFFER_SIZE = '16K'  # Download buffer size
 CHUNK_SIZE = '10M'  # HTTP chunk size
+CONCURRENT_FRAGMENTS = '5'  # Parallel fragment downloads
+UI_UPDATE_DELAY_MS = 100  # UI update delay in milliseconds
+PROGRESS_COMPLETE = 100  # Progress bar completion value
+
+# Timeout constants
+CLIPBOARD_TIMEOUT = 0.5  # Clipboard operation timeout in seconds
+METADATA_FETCH_TIMEOUT = 30  # Timeout for fetching video metadata
+STREAM_FETCH_TIMEOUT = 15  # Timeout for stream/frame operations
+FFPROBE_TIMEOUT = 10  # Timeout for ffprobe operations
+DEPENDENCY_CHECK_TIMEOUT = 5  # Timeout for dependency checks
+TIMEOUT_CHECK_INTERVAL = 10  # Download timeout check interval
 
 # Security: Maximum values for validation
 MAX_VOLUME = 2.0  # Maximum 200% volume
 MIN_VOLUME = 0.0  # Minimum 0% volume (mute)
 MAX_VIDEO_DURATION = 86400  # Max 24 hours
 CATBOX_MAX_SIZE_MB = 200  # Catbox file size limit
+MAX_FILENAME_LENGTH = 200  # Maximum filename length
+DEFAULT_VIDEO_QUALITY = "480"  # Default video quality preset
 
 # Compiled regex patterns for performance
 PROGRESS_REGEX = re.compile(r'(\d+\.?\d*)%')
@@ -231,9 +244,9 @@ class YouTubeDownloader:
         # Remove leading/trailing dots and spaces
         filename = filename.strip('. ')
 
-        # Limit length to 200 characters (filesystem limits)
-        if len(filename) > 200:
-            filename = filename[:200]
+        # Limit length to filesystem limits
+        if len(filename) > MAX_FILENAME_LENGTH:
+            filename = filename[:MAX_FILENAME_LENGTH]
 
         return filename
 
@@ -333,7 +346,7 @@ class YouTubeDownloader:
         """
         return [
             self.ytdlp_path,
-            '--concurrent-fragments', '5',
+            '--concurrent-fragments', CONCURRENT_FRAGMENTS,
             '--buffer-size', BUFFER_SIZE,
             '--http-chunk-size', CHUNK_SIZE,
             '--newline',
@@ -1194,6 +1207,7 @@ class YouTubeDownloader:
 
     def _download_clipboard_url(self, url, check_stop=False, check_stop_auto=False):
         """Download single URL from clipboard mode (blocking, runs in thread). Returns True if successful."""
+        process = None
         try:
             quality = self.clipboard_quality_var.get()
             if "none" in quality.lower():
@@ -1204,36 +1218,13 @@ class YouTubeDownloader:
             self.root.after(0, lambda: self.clipboard_progress.config(value=0))
             self.root.after(0, lambda: self.clipboard_progress_label.config(text="0%"))
 
-            output_template = '%(title)s.%(ext)s'
+            output_path = os.path.join(self.clipboard_download_path, '%(title)s.%(ext)s')
 
+            # Use helper methods for command construction
             if audio_only:
-                cmd = [
-                    self.ytdlp_path,
-                    '--concurrent-fragments', '5',
-                    '--buffer-size', BUFFER_SIZE,
-                    '--http-chunk-size', CHUNK_SIZE,
-                    '-f', 'bestaudio',
-                    '--extract-audio',
-                    '--audio-format', 'm4a',
-                    '--audio-quality', '128K',
-                    '--newline',
-                    '--progress',
-                    '-o', os.path.join(self.clipboard_download_path, output_template),
-                    url
-                ]
+                cmd = self.build_audio_ytdlp_command(url, output_path, volume=1.0)
             else:
-                cmd = [
-                    self.ytdlp_path,
-                    '--concurrent-fragments', '5',
-                    '--buffer-size', BUFFER_SIZE,
-                    '--http-chunk-size', CHUNK_SIZE,
-                    '-f', f'bestvideo[height<={quality}]+bestaudio/best[height<={quality}]',
-                    '--merge-output-format', 'mp4',
-                    '--newline',
-                    '--progress',
-                    '-o', os.path.join(self.clipboard_download_path, output_template),
-                    url
-                ]
+                cmd = self.build_video_ytdlp_command(url, output_path, quality, volume=1.0)
 
             process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                        universal_newlines=True, bufsize=1)
@@ -1241,10 +1232,10 @@ class YouTubeDownloader:
             for line in process.stdout:
                 # Check stop flags
                 if check_stop and not self.clipboard_downloading:
-                    process.terminate()
+                    self.safe_process_cleanup(process)
                     return False
                 if check_stop_auto and not self.clipboard_auto_downloading:
-                    process.terminate()
+                    self.safe_process_cleanup(process)
                     return False
 
                 if '[download]' in line or 'Downloading' in line:
@@ -1256,15 +1247,21 @@ class YouTubeDownloader:
             process.wait()
 
             if process.returncode == 0:
-                self.root.after(0, lambda: self.update_clipboard_progress(100))
+                self.root.after(0, lambda: self.update_clipboard_progress(PROGRESS_COMPLETE))
                 logger.info(f"Clipboard download completed: {url}")
-                return True
+                success = True
             else:
                 logger.error(f"Clipboard download failed: {url}, returncode={process.returncode}")
-                return False
+                success = False
+
+            # Clean up process resources
+            self.safe_process_cleanup(process)
+            return success
 
         except Exception as e:
             logger.exception(f"Error downloading clipboard URL {url}: {e}")
+            if process:
+                self.safe_process_cleanup(process)
             return False
 
     def _finish_clipboard_downloads(self):
@@ -1538,14 +1535,14 @@ class YouTubeDownloader:
             # Fetch duration
             def _fetch_duration():
                 cmd = [self.ytdlp_path, '--get-duration', url]
-                return subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                return subprocess.run(cmd, capture_output=True, text=True, timeout=METADATA_FETCH_TIMEOUT)
 
             result = self.retry_network_operation(_fetch_duration, "Fetch duration")
 
             # Fetch title in parallel
             def _fetch_title():
                 cmd = [self.ytdlp_path, '--get-title', url]
-                return subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                return subprocess.run(cmd, capture_output=True, text=True, timeout=METADATA_FETCH_TIMEOUT)
 
             title_result = self.retry_network_operation(_fetch_title, "Fetch title")
 
@@ -1630,7 +1627,7 @@ class YouTubeDownloader:
                     format_selector = f'bestvideo[height<={quality}]+bestaudio/best[height<={quality}]'
 
                 cmd = [self.ytdlp_path, '--dump-json', '-f', format_selector, url]
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=STREAM_FETCH_TIMEOUT)
 
                 if result.returncode == 0:
                     info = json.loads(result.stdout)
@@ -2288,17 +2285,17 @@ class YouTubeDownloader:
         try:
             # Check yt-dlp
             result = subprocess.run([self.ytdlp_path, '--version'],
-                                  capture_output=True, check=True, timeout=5)
+                                  capture_output=True, check=True, timeout=DEPENDENCY_CHECK_TIMEOUT)
             logger.info(f"yt-dlp version: {result.stdout.decode().strip()}")
 
             # Check ffmpeg (use bundled or system)
             result = subprocess.run([self.ffmpeg_path, '-version'],
-                                  capture_output=True, check=True, timeout=5)
+                                  capture_output=True, check=True, timeout=DEPENDENCY_CHECK_TIMEOUT)
             logger.info(f"ffmpeg is available at: {self.ffmpeg_path}")
 
             # Check ffprobe (use bundled or system)
             result = subprocess.run([self.ffprobe_path, '-version'],
-                                  capture_output=True, check=True, timeout=5)
+                                  capture_output=True, check=True, timeout=DEPENDENCY_CHECK_TIMEOUT)
             logger.info(f"ffprobe is available at: {self.ffprobe_path}")
 
             return True
@@ -2402,20 +2399,7 @@ class YouTubeDownloader:
     def stop_download(self):
         """Stop download gracefully, with forced termination as fallback"""
         if self.current_process and self.is_downloading:
-            try:
-                # Try graceful termination first (SIGTERM)
-                self.current_process.terminate()
-
-                # Wait for graceful shutdown
-                try:
-                    self.current_process.wait(timeout=PROCESS_TERMINATE_TIMEOUT)
-                except subprocess.TimeoutExpired:
-                    # If still running, force kill (SIGKILL)
-                    logger.warning("Download process did not terminate gracefully, forcing kill")
-                    self.current_process.kill()
-                    self.current_process.wait()
-            except Exception as e:
-                logger.error(f"Error stopping download: {e}")
+            self.safe_process_cleanup(self.current_process)
 
             self.is_downloading = False
             self.update_status("Download stopped", "orange")
