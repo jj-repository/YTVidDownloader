@@ -86,6 +86,9 @@ DEFAULT_VIDEO_QUALITY = "480"  # Default video quality preset
 
 # UI Constants
 CLIPBOARD_URL_LIST_HEIGHT = 12  # Height for clipboard URL list (reduced from 200)
+UI_INITIAL_DELAY_MS = 100  # Delay for initial UI setup callbacks (milliseconds)
+AUTO_UPLOAD_DELAY_MS = 500  # Delay before auto-upload starts (milliseconds)
+SHUTDOWN_GRACE_PERIOD_SEC = 0.5  # Wait time during graceful shutdown (seconds)
 
 # File paths for persistence
 UPLOAD_HISTORY_FILE = Path.home() / ".youtubedownloader" / "upload_history.txt"
@@ -861,6 +864,9 @@ class YouTubeDownloader:
         self.clipboard_lock = threading.Lock()  # Protect clipboard URL list
         self.auto_download_lock = threading.Lock()  # Protect auto-download state
         self.download_lock = threading.Lock()  # Protect download state
+        self.upload_lock = threading.Lock()  # Protect upload state
+        self.uploader_lock = threading.Lock()  # Protect uploader queue state
+        self.fetch_lock = threading.Lock()  # Protect duration fetch state
 
         # Clipboard Mode variables
         self.clipboard_monitoring = False
@@ -1488,7 +1494,7 @@ class YouTubeDownloader:
                 bind_to_mousewheel(child)
 
         # This will be called after all widgets are created
-        self.root.after(100, lambda: bind_to_mousewheel(scrollable_frame))
+        self.root.after(UI_INITIAL_DELAY_MS, lambda: bind_to_mousewheel(scrollable_frame))
 
         # Store canvas reference for cleanup
         self.canvas = canvas
@@ -2073,7 +2079,9 @@ class YouTubeDownloader:
             has_urls = len(self.clipboard_url_list) > 0
 
         self._update_clipboard_url_count()
-        if has_urls and not self.clipboard_downloading:
+        with self.clipboard_lock:
+            is_downloading = self.clipboard_downloading
+        if has_urls and not is_downloading:
             self.clipboard_download_btn.config(state='normal')
 
         # Save URLs to persistence file
@@ -2107,7 +2115,9 @@ class YouTubeDownloader:
 
     def clear_all_clipboard_urls(self):
         """Clear all URLs from clipboard list"""
-        if self.clipboard_downloading:
+        with self.clipboard_lock:
+            is_downloading = self.clipboard_downloading
+        if is_downloading:
             messagebox.showwarning(tr('warning_cannot_clear_title'), tr('warning_cannot_clear_downloading'))
             return
 
@@ -2156,7 +2166,9 @@ class YouTubeDownloader:
 
     def start_clipboard_downloads(self):
         """Start downloading all pending URLs sequentially"""
-        if self.clipboard_downloading:
+        with self.clipboard_lock:
+            is_downloading = self.clipboard_downloading
+        if is_downloading:
             return
 
         with self.clipboard_lock:
@@ -2166,7 +2178,8 @@ class YouTubeDownloader:
             messagebox.showinfo(tr('warning_no_urls_title'), tr('warning_no_urls'))
             return
 
-        self.clipboard_downloading = True
+        with self.clipboard_lock:
+            self.clipboard_downloading = True
         self.clipboard_download_btn.config(state='disabled')
         self.clipboard_stop_btn.config(state='normal')
 
@@ -2183,7 +2196,9 @@ class YouTubeDownloader:
         total_count = len(pending_urls)
 
         for index, item in enumerate(pending_urls):
-            if not self.clipboard_downloading:
+            with self.clipboard_lock:
+                is_downloading = self.clipboard_downloading
+            if not is_downloading:
                 logger.info("Clipboard downloads stopped by user")
                 break
 
@@ -2234,12 +2249,18 @@ class YouTubeDownloader:
 
             for line in process.stdout:
                 # Check stop flags
-                if check_stop and not self.clipboard_downloading:
-                    self.safe_process_cleanup(process)
-                    return False
-                if check_stop_auto and not self.clipboard_auto_downloading:
-                    self.safe_process_cleanup(process)
-                    return False
+                if check_stop:
+                    with self.clipboard_lock:
+                        is_downloading = self.clipboard_downloading
+                    if not is_downloading:
+                        self.safe_process_cleanup(process)
+                        return False
+                if check_stop_auto:
+                    with self.auto_download_lock:
+                        is_auto_downloading = self.clipboard_auto_downloading
+                    if not is_auto_downloading:
+                        self.safe_process_cleanup(process)
+                        return False
 
                 if '[download]' in line or 'Downloading' in line:
                     progress_match = PROGRESS_REGEX.search(line)
@@ -2269,9 +2290,8 @@ class YouTubeDownloader:
 
     def _finish_clipboard_downloads(self):
         """Clean up after batch downloads complete"""
-        self.clipboard_downloading = False
-
         with self.clipboard_lock:
+            self.clipboard_downloading = False
             has_urls = len(self.clipboard_url_list) > 0
             completed = sum(1 for item in self.clipboard_url_list if item['status'] == 'completed')
             failed = sum(1 for item in self.clipboard_url_list if item['status'] == 'failed')
@@ -2289,15 +2309,18 @@ class YouTubeDownloader:
     def stop_clipboard_downloads(self):
         """Stop clipboard batch downloads and auto-downloads"""
         stopped = False
-        if self.clipboard_downloading:
-            self.clipboard_downloading = False
-            stopped = True
-            logger.info("Clipboard batch downloads stopped by user")
-        if self.clipboard_auto_downloading:
-            self.clipboard_auto_downloading = False
-            stopped = True
-            logger.info("Clipboard auto-downloads stopped by user")
+        with self.clipboard_lock:
+            if self.clipboard_downloading:
+                self.clipboard_downloading = False
+                stopped = True
         if stopped:
+            logger.info("Clipboard batch downloads stopped by user")
+        with self.auto_download_lock:
+            if self.clipboard_auto_downloading:
+                self.clipboard_auto_downloading = False
+                stopped = True
+        if stopped:
+            logger.info("Clipboard auto-downloads stopped by user")
             self.update_clipboard_status(tr('status_downloads_stopped'), "orange")
             self.clipboard_stop_btn.config(state='disabled')
 
@@ -2323,7 +2346,9 @@ class YouTubeDownloader:
     def _auto_download_worker(self, url):
         """Worker thread for auto-downloading single URL"""
         # Check if stopped before starting
-        if not self.clipboard_auto_downloading:
+        with self.auto_download_lock:
+            is_auto_downloading = self.clipboard_auto_downloading
+        if not is_auto_downloading:
             self.root.after(0, lambda: self._update_url_status(url, 'pending'))
             return
 
@@ -2332,7 +2357,9 @@ class YouTubeDownloader:
         success = self._download_clipboard_url(url, check_stop_auto=True)
 
         # Check if stopped during download
-        if not self.clipboard_auto_downloading:
+        with self.auto_download_lock:
+            is_auto_downloading = self.clipboard_auto_downloading
+        if not is_auto_downloading:
             self.root.after(0, lambda: self._update_url_status(url, 'pending'))
             self.root.after(0, lambda: self.update_clipboard_status(tr('status_auto_download_stopped'), "orange"))
             return
@@ -2360,13 +2387,18 @@ class YouTubeDownloader:
 
     def _disable_stop_if_idle(self):
         """Disable stop button if no downloads in progress"""
-        if not self.clipboard_downloading and not self.clipboard_auto_downloading:
+        with self.clipboard_lock:
+            is_downloading = self.clipboard_downloading
+        with self.auto_download_lock:
+            is_auto_downloading = self.clipboard_auto_downloading
+        if not is_downloading and not is_auto_downloading:
             self.clipboard_stop_btn.config(state='disabled')
 
     def _check_pending_auto_downloads(self):
         """Check if there are pending URLs that need to be auto-downloaded"""
         # Reset auto-downloading flag if no more downloads
-        self.clipboard_auto_downloading = False
+        with self.auto_download_lock:
+            self.clipboard_auto_downloading = False
 
         if self.clipboard_auto_download_var.get():
             # Find first pending URL
@@ -2437,9 +2469,9 @@ class YouTubeDownloader:
             if sys.platform == 'win32':
                 os.startfile(self.clipboard_download_path)
             elif sys.platform == 'darwin':
-                subprocess.Popen(['open', self.clipboard_download_path])
+                subprocess.Popen(['open', self.clipboard_download_path], close_fds=True, start_new_session=True)
             else:
-                subprocess.Popen(['xdg-open', self.clipboard_download_path])
+                subprocess.Popen(['xdg-open', self.clipboard_download_path], close_fds=True, start_new_session=True)
         except Exception as e:
             messagebox.showerror(tr('error_title'), tr('error_failed_open_folder', error=str(e)))
 
@@ -2526,7 +2558,9 @@ class YouTubeDownloader:
                 # Don't fetch duration for playlists
                 return
 
-        if self.is_fetching_duration or self.is_downloading:
+        with self.fetch_lock:
+            is_fetching = self.is_fetching_duration
+        if is_fetching or self.is_downloading:
             return
 
         # Save the URL for preview extraction and clear cache
@@ -2536,7 +2570,8 @@ class YouTubeDownloader:
         else:
             self.current_video_url = url
 
-        self.is_fetching_duration = True
+        with self.fetch_lock:
+            self.is_fetching_duration = True
         self.fetch_duration_btn.config(state='disabled')
         self.update_status(tr('status_fetching_duration'), "blue")
 
@@ -2606,7 +2641,7 @@ class YouTubeDownloader:
                 self.update_status(tr('status_duration_fetched'), "green")
 
                 # Trigger initial preview update
-                self.root.after(100, self.update_previews)
+                self.root.after(UI_INITIAL_DELAY_MS, self.update_previews)
                 logger.info(f"Successfully fetched video duration: {self.video_duration}s")
             else:
                 raise Exception(f"yt-dlp returned error: {result.stderr}")
@@ -2627,7 +2662,8 @@ class YouTubeDownloader:
             logger.exception(f"Unexpected error fetching duration: {e}")
 
         finally:
-            self.is_fetching_duration = False
+            with self.fetch_lock:
+                self.is_fetching_duration = False
             if self.trim_enabled_var.get():
                 self.fetch_duration_btn.config(state='normal')
 
@@ -2765,7 +2801,8 @@ class YouTubeDownloader:
             self.update_status(tr('error_read_file_failed', error=''), "red")
             logger.exception(f"Unexpected error reading local file: {e}")
         finally:
-            self.is_fetching_duration = False
+            with self.fetch_lock:
+                self.is_fetching_duration = False
             if self.trim_enabled_var.get():
                 self.fetch_duration_btn.config(state='normal')
 
@@ -2913,7 +2950,8 @@ class YouTubeDownloader:
     def upload_to_catbox(self):
         """Upload file to Catbox.moe and display the URL"""
         try:
-            self.is_uploading = True
+            with self.upload_lock:
+                self.is_uploading = True
             logger.info(f"Starting upload to Catbox.moe: {self.last_output_file}")
 
             # Upload file using catboxpy
@@ -2929,7 +2967,8 @@ class YouTubeDownloader:
             logger.exception(f"Upload failed: {e}")
 
         finally:
-            self.is_uploading = False
+            with self.upload_lock:
+                self.is_uploading = False
 
     def _upload_success(self, file_url):
         """Handle successful upload (called on main thread)"""
@@ -3016,7 +3055,9 @@ class YouTubeDownloader:
         self.uploader_file_queue.append({'path': file_path, 'widget': file_frame})
         self._update_uploader_queue_count()
 
-        if len(self.uploader_file_queue) > 0 and not self.uploader_is_uploading:
+        with self.uploader_lock:
+            is_uploading = self.uploader_is_uploading
+        if len(self.uploader_file_queue) > 0 and not is_uploading:
             self.uploader_upload_btn.config(state='normal')
 
     def _remove_file_from_queue(self, file_path):
@@ -3034,7 +3075,9 @@ class YouTubeDownloader:
 
     def clear_uploader_queue(self):
         """Clear all files from upload queue"""
-        if self.uploader_is_uploading:
+        with self.uploader_lock:
+            is_uploading = self.uploader_is_uploading
+        if is_uploading:
             messagebox.showwarning(tr('warning_cannot_clear_title'), tr('warning_cannot_clear_uploading'))
             return
 
@@ -3059,10 +3102,13 @@ class YouTubeDownloader:
             messagebox.showinfo(tr('warning_no_files_title'), tr('warning_no_files'))
             return
 
-        if self.uploader_is_uploading:
+        with self.uploader_lock:
+            is_uploading = self.uploader_is_uploading
+        if is_uploading:
             return
 
-        self.uploader_is_uploading = True
+        with self.uploader_lock:
+            self.uploader_is_uploading = True
         self.uploader_current_index = 0
         self.uploader_upload_btn.config(state='disabled')
         self.uploader_url_frame.grid_remove()
@@ -3075,7 +3121,9 @@ class YouTubeDownloader:
         total_count = len(self.uploader_file_queue)
 
         for index, item in enumerate(self.uploader_file_queue):
-            if not self.uploader_is_uploading:
+            with self.uploader_lock:
+                is_uploading = self.uploader_is_uploading
+            if not is_uploading:
                 logger.info("Uploader queue processing stopped by user")
                 break
 
@@ -3136,7 +3184,8 @@ class YouTubeDownloader:
 
     def _finish_uploader_queue(self):
         """Clean up after queue upload completes"""
-        self.uploader_is_uploading = False
+        with self.uploader_lock:
+            self.uploader_is_uploading = False
 
         # Clear the queue
         for item in self.uploader_file_queue:
@@ -3195,7 +3244,7 @@ class YouTubeDownloader:
                     logger.info("Auto-upload skipped for playlist URL")
                 else:
                     logger.info("Auto-upload enabled, starting upload...")
-                    self.root.after(500, self.start_upload)  # Small delay to ensure UI updates
+                    self.root.after(AUTO_UPLOAD_DELAY_MS, self.start_upload)  # Small delay to ensure UI updates
 
     def schedule_preview_update(self):
         """Schedule preview update with debouncing to avoid excessive calls"""
@@ -3354,12 +3403,11 @@ class YouTubeDownloader:
     def _update_preview_image(self, image_path, position):
         """Update preview image in UI (must be called from main thread or scheduled)"""
         try:
-            # Load and resize image
-            img = Image.open(image_path)
-            img.thumbnail((PREVIEW_WIDTH, PREVIEW_HEIGHT), Image.Resampling.LANCZOS)
-
-            # Convert to PhotoImage
-            photo = ImageTk.PhotoImage(img)
+            # Load and resize image (using context manager for proper cleanup)
+            with Image.open(image_path) as img:
+                img.thumbnail((PREVIEW_WIDTH, PREVIEW_HEIGHT), Image.Resampling.LANCZOS)
+                # Convert to PhotoImage (must be done before context exits)
+                photo = ImageTk.PhotoImage(img)
 
             # Schedule UI update on main thread
             if position == 'start':
@@ -3412,9 +3460,9 @@ class YouTubeDownloader:
             if sys.platform == 'win32':
                 os.startfile(self.download_path)
             elif sys.platform == 'darwin':
-                subprocess.Popen(['open', self.download_path])
+                subprocess.Popen(['open', self.download_path], close_fds=True, start_new_session=True)
             else:
-                subprocess.Popen(['xdg-open', self.download_path])
+                subprocess.Popen(['xdg-open', self.download_path], close_fds=True, start_new_session=True)
         except Exception as e:
             messagebox.showerror(tr('error_title'), tr('error_failed_open_folder', error=str(e)))
 
@@ -3584,10 +3632,13 @@ class YouTubeDownloader:
 
     def _monitor_download_timeout(self):
         """Monitor download for timeouts (absolute and progress-based)"""
-        while self.is_downloading:
-            time.sleep(10)  # Check every 10 seconds
+        while True:
+            time.sleep(TIMEOUT_CHECK_INTERVAL)  # Check at configured interval
 
-            if not self.is_downloading:
+            with self.download_lock:
+                is_still_downloading = self.is_downloading
+
+            if not is_still_downloading:
                 break
 
             current_time = time.time()
@@ -3633,8 +3684,12 @@ class YouTubeDownloader:
 
     def stop_download(self):
         """Stop download gracefully, with forced termination as fallback"""
-        if self.current_process and self.is_downloading:
-            self.safe_process_cleanup(self.current_process)
+        with self.download_lock:
+            process_to_cleanup = self.current_process
+            is_active = self.is_downloading
+
+        if process_to_cleanup and is_active:
+            self.safe_process_cleanup(process_to_cleanup)
 
             with self.download_lock:
                 self.is_downloading = False
@@ -3888,7 +3943,7 @@ class YouTubeDownloader:
 
         except FileNotFoundError as e:
             if self.is_downloading:
-                error_msg = "yt-dlp or ffmpeg not found. Please ensure they are installed."
+                error_msg = tr('error_missing_dependencies')
                 self.update_status(error_msg, "red")
                 logger.error(f"Dependency not found: {e}")
         except PermissionError as e:
@@ -4240,14 +4295,19 @@ class YouTubeDownloader:
         self.stop_clipboard_monitoring()
 
         # Stop clipboard downloads
-        if self.clipboard_downloading:
-            self.clipboard_downloading = False
-            time.sleep(0.5)
+        with self.clipboard_lock:
+            if self.clipboard_downloading:
+                self.clipboard_downloading = False
+        time.sleep(SHUTDOWN_GRACE_PERIOD_SEC)
 
         # Stop any ongoing downloads gracefully
-        if self.is_downloading and self.current_process:
+        with self.download_lock:
+            process_to_cleanup = self.current_process
+            is_active = self.is_downloading
+
+        if is_active and process_to_cleanup:
             logger.info("Terminating active download process...")
-            self.safe_process_cleanup(self.current_process)
+            self.safe_process_cleanup(process_to_cleanup)
 
         # Clean up temp files
         try:
