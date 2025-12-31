@@ -77,7 +77,7 @@ jobs:
     - name: Build executable (Linux)
       if: matrix.os == 'ubuntu-latest'
       run: |
-        pyinstaller --onefile --name YoutubeDownloader --windowed --add-binary "ffmpeg:." --add-binary "ffprobe:." --add-binary "yt-dlp:." downloader.py
+        pyinstaller --onefile --name YoutubeDownloader --windowed --add-binary "ffmpeg:." --add-binary "ffprobe:." --add-binary "yt-dlp:." --hidden-import=PIL._tkinter_finder --collect-submodules=PIL downloader.py
 
     - name: Download and bundle ffmpeg (Windows)
       if: matrix.os == 'windows-latest'
@@ -100,7 +100,7 @@ jobs:
     - name: Build executable (Windows)
       if: matrix.os == 'windows-latest'
       run: |
-        pyinstaller --onefile --name YoutubeDownloader --windowed --icon=NONE --add-binary "ffmpeg.exe;." --add-binary "ffprobe.exe;." --add-binary "yt-dlp.exe;." downloader.py
+        pyinstaller --onefile --name YoutubeDownloader --windowed --icon=NONE --add-binary "ffmpeg.exe;." --add-binary "ffprobe.exe;." --add-binary "yt-dlp.exe;." --hidden-import=PIL._tkinter_finder --collect-submodules=PIL downloader.py
 
     - name: Create release package (Linux)
       if: matrix.os == 'ubuntu-latest'
