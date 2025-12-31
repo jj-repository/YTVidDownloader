@@ -1,5 +1,7 @@
 # YoutubeDownloader
 
+[![Build](https://github.com/jj-repository/YoutubeDownloader/actions/workflows/build-release.yml/badge.svg)](https://github.com/jj-repository/YoutubeDownloader/actions/workflows/build-release.yml)
+
 A professional YouTube video downloader with advanced trimming capabilities, clipboard monitoring, and catbox.moe upload integration. Download videos in multiple qualities, extract audio, trim videos to exact timestamps with visual frame previews, and automatically detect YouTube URLs from your clipboard.
 
 ## ✨ Features
