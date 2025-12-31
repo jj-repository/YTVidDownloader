@@ -873,7 +873,7 @@ class YouTubeDownloader:
         self.clipboard_monitor_thread = None
         self.clipboard_last_content = ""
         self.clipboard_url_list = []  # List of dict: {'url': str, 'status': str, 'widget': Frame}
-        self.clipboard_download_path = str(Path.home() / "Downloads" / "ClipboardMode")
+        self.clipboard_download_path = str(Path.home() / "Downloads")
         self.clipboard_downloading = False
         self.clipboard_auto_downloading = False  # Separate flag for auto-downloads
         self.clipboard_current_download_index = 0
@@ -3313,10 +3313,12 @@ class YouTubeDownloader:
                 video_url = self.current_video_url
             else:
                 # Get the actual video stream URL using yt-dlp with retry
+                # Use a format that includes video+audio to avoid segmented streams
                 def _get_stream_url():
                     get_url_cmd = [
                         self.ytdlp_path,
-                        '-f', 'bestvideo[height<=480]/best[height<=480]',
+                        '-f', 'best[height<=480]/best',  # Combined format is more reliable for frame extraction
+                        '--no-playlist',
                         '-g',
                         self.current_video_url
                     ]
@@ -3325,17 +3327,32 @@ class YouTubeDownloader:
                 result = self.retry_network_operation(_get_stream_url, f"Get stream URL for frame at {timestamp}s")
                 video_url = result.stdout.strip().split('\n')[0]
 
+                if not video_url:
+                    logger.error("Failed to get stream URL - empty response")
+                    return None
+
             # Now extract frame from the actual stream with retry
             def _extract_frame():
                 cmd = [
                     self.ffmpeg_path,
+                    '-nostdin',
+                ]
+                # Add HTTP streaming options for YouTube URLs
+                if video_url.startswith('http'):
+                    cmd.extend([
+                        '-reconnect', '1',
+                        '-reconnect_streamed', '1',
+                        '-reconnect_delay_max', '5',
+                        '-timeout', '10000000',  # 10 second timeout in microseconds
+                    ])
+                cmd.extend([
                     '-ss', str(timestamp),
                     '-i', video_url,
                     '-vframes', '1',
                     '-q:v', '2',
                     '-y',
                     temp_file
-                ]
+                ])
                 return subprocess.run(cmd, capture_output=True, timeout=STREAM_FETCH_TIMEOUT, check=True)
 
             self.retry_network_operation(_extract_frame, f"Extract frame at {timestamp}s")
@@ -3378,7 +3395,13 @@ class YouTubeDownloader:
     def _update_previews_thread(self, start_time, end_time):
         """Background thread to extract and update preview frames"""
         try:
-            logger.info(f"Extracting preview frames at {start_time}s and {end_time}s")
+            # Adjust end_time if it's at or near the video end (ffmpeg struggles with exact EOF)
+            adjusted_end_time = end_time
+            if self.video_duration > 0 and end_time >= self.video_duration - 1:
+                adjusted_end_time = max(0, self.video_duration - 3)  # 3 seconds before end
+                logger.debug(f"Adjusted end preview time from {end_time}s to {adjusted_end_time}s (near EOF)")
+
+            logger.info(f"Extracting preview frames at {start_time}s and {adjusted_end_time}s")
 
             # Extract start frame
             start_frame_path = self.extract_frame(start_time)
@@ -3389,8 +3412,8 @@ class YouTubeDownloader:
                 error_img = self.create_placeholder_image(PREVIEW_WIDTH, PREVIEW_HEIGHT, "Error")
                 self.root.after(0, lambda img=error_img: self._set_start_preview(img))
 
-            # Extract end frame
-            end_frame_path = self.extract_frame(end_time)
+            # Extract end frame (using adjusted time to avoid EOF issues)
+            end_frame_path = self.extract_frame(adjusted_end_time)
             if end_frame_path:
                 self._update_preview_image(end_frame_path, 'end')
             else:
