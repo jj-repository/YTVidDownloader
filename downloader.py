@@ -3598,14 +3598,21 @@ class YouTubeDownloader:
     def check_dependencies(self):
         """Check if yt-dlp, ffmpeg, and ffprobe are available"""
         try:
-            # Check yt-dlp (don't use check=True as warnings may cause non-zero exit)
-            result = subprocess.run([self.ytdlp_path, '--version'],
-                                  capture_output=True, timeout=DEPENDENCY_CHECK_TIMEOUT)
-            version = result.stdout.decode().strip()
-            if version:
+            # Check yt-dlp with retry (bundled binaries may need time to extract)
+            version = None
+            for attempt in range(3):
+                result = subprocess.run([self.ytdlp_path, '--version'],
+                                      capture_output=True, timeout=DEPENDENCY_CHECK_TIMEOUT)
+                # Check both stdout and stderr for version (may vary by environment)
+                version = result.stdout.decode().strip() or result.stderr.decode().strip().split('\n')[-1]
+                if version and version[0].isdigit():
+                    break
+                time.sleep(0.5)  # Brief delay before retry
+
+            if version and version[0].isdigit():
                 logger.info(f"yt-dlp version: {version}")
             else:
-                logger.error("yt-dlp check failed: no version output")
+                logger.error(f"yt-dlp check failed: no version output")
                 return False
 
             # Check ffmpeg (use bundled or system)
