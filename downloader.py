@@ -97,7 +97,7 @@ AUTO_UPLOAD_DELAY_MS = 500  # Delay before auto-upload starts (milliseconds)
 SHUTDOWN_GRACE_PERIOD_SEC = 0.5  # Wait time during graceful shutdown (seconds)
 
 # Version and Update Constants
-APP_VERSION = "3.2.0"
+APP_VERSION = "3.2.1"
 GITHUB_REPO = "jj-repository/YoutubeDownloader"
 GITHUB_RELEASES_URL = f"https://github.com/{GITHUB_REPO}/releases"
 GITHUB_API_LATEST = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
