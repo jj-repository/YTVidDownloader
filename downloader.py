@@ -2279,7 +2279,7 @@ class YouTubeDownloader:
             if "none" in quality.lower():
                 quality = "none"
 
-            audio_only = (quality == "none")
+            audio_only = quality.startswith("none")
 
             self.root.after(0, lambda: self.clipboard_progress.config(value=0))
             self.root.after(0, lambda: self.clipboard_progress_label.config(text="0%"))
@@ -2775,7 +2775,7 @@ class YouTubeDownloader:
                 quality = self.quality_var.get()
 
                 # Build format selector based on quality
-                if quality == "none":
+                if quality.startswith("none"):
                     format_selector = "bestaudio"
                 else:
                     format_selector = f'bestvideo[height<={quality}]+bestaudio/best[height<={quality}]'
@@ -3876,7 +3876,7 @@ class YouTubeDownloader:
 
             quality = self.quality_var.get()
             trim_enabled = self.trim_enabled_var.get()
-            audio_only = (quality == "none")
+            audio_only = quality.startswith("none")
 
             self.update_status(tr('status_starting_download'), "blue")
 
@@ -3953,7 +3953,7 @@ class YouTubeDownloader:
 
                 cmd.append(url)
             else:
-                if quality == "none":
+                if quality.startswith("none"):
                     self.update_status(tr('error_select_quality'), "red")
                     self.download_btn.config(state='normal')
                     self.stop_btn.config(state='disabled')
@@ -4023,6 +4023,8 @@ class YouTubeDownloader:
                     url
                 ])
 
+            logger.info(f"Download command: {' '.join(cmd)}")
+
             self.current_process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
@@ -4032,10 +4034,16 @@ class YouTubeDownloader:
             )
 
             # Parse output for progress
+            error_lines = []  # Capture error output for debugging
             try:
                 for line in self.current_process.stdout:
                     if not self.is_downloading:
                         break
+
+                    # Capture ERROR lines for debugging
+                    if 'ERROR' in line or 'error' in line.lower():
+                        error_lines.append(line.strip())
+                        logger.warning(f"yt-dlp: {line.strip()}")
 
                     # Look for download progress - multiple patterns for reliability
                     if '[download]' in line or 'Downloading' in line:
@@ -4105,6 +4113,8 @@ class YouTubeDownloader:
             elif self.is_downloading:
                 self.update_status(tr('status_download_failed'), "red")
                 logger.error(f"Download failed with return code {self.current_process.returncode}")
+                if error_lines:
+                    logger.error(f"yt-dlp errors: {'; '.join(error_lines)}")
 
         except FileNotFoundError as e:
             if self.is_downloading:
@@ -4138,7 +4148,7 @@ class YouTubeDownloader:
         try:
             quality = self.quality_var.get()
             trim_enabled = self.trim_enabled_var.get()
-            audio_only = (quality == "none")
+            audio_only = quality.startswith("none")
 
             self.update_status(tr('status_processing_local'), "blue")
 
@@ -4202,7 +4212,7 @@ class YouTubeDownloader:
                 cmd.extend(['-progress', 'pipe:1', '-y', output_file])
             else:
                 # Video processing
-                if quality == "none":
+                if quality.startswith("none"):
                     self.update_status(tr('error_select_quality'), "red")
                     self.download_btn.config(state='normal')
                     self.stop_btn.config(state='disabled')
@@ -4286,7 +4296,7 @@ class YouTubeDownloader:
         """Download entire YouTube playlist with quality and volume settings"""
         try:
             quality = self.quality_var.get()
-            audio_only = (quality == "none")
+            audio_only = quality.startswith("none")
             volume_multiplier = self.validate_volume(self.volume_var.get())
 
             # Check for custom filename
@@ -4328,7 +4338,7 @@ class YouTubeDownloader:
 
             else:
                 # Video playlist
-                if quality == "none":
+                if quality.startswith("none"):
                     self.update_status(tr('error_select_quality'), "red")
                     self.download_btn.config(state='normal')
                     self.stop_btn.config(state='disabled')
