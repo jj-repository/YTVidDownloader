@@ -161,6 +161,13 @@ message = tr('download_complete')  # Returns German translation
 2. **Hardcoded supported sites**: URL patterns could be more extensible
 3. **Large single file**: Main downloader.py is large, could benefit from further modularization
 
+## Language System
+
+Uses `translations.py` module for all language management:
+- `translations.set_language(code)`: Set current language
+- `translations.get_language()`: Get current language code
+- `tr(key)`: Get translated string for current language
+
 ## Common Development Tasks
 
 ### Adding new translation string

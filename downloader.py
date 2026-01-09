@@ -268,7 +268,6 @@ class YouTubeDownloader:
 
     def _load_language_preference(self):
         """Load saved language preference"""
-        global CURRENT_LANGUAGE
         try:
             if CONFIG_FILE.exists():
                 with open(CONFIG_FILE, 'r') as f:
@@ -276,21 +275,21 @@ class YouTubeDownloader:
                     # Validate config structure
                     if not self.validate_config_json(config):
                         logger.warning("Invalid config structure, using defaults")
-                        CURRENT_LANGUAGE = 'en'
+                        translations.set_language('en')
                         return
                     lang_code = config.get('language', 'en')
                     # Validate language code
                     if lang_code not in ['en', 'de', 'pl']:
                         logger.warning(f"Unknown language code '{lang_code}', using 'en'")
                         lang_code = 'en'
-                    CURRENT_LANGUAGE = lang_code
+                    translations.set_language(lang_code)
                     logger.info(f"Loaded language preference: {lang_code}")
         except json.JSONDecodeError as e:
             logger.error(f"Invalid JSON in config file: {e}")
-            CURRENT_LANGUAGE = 'en'
+            translations.set_language('en')
         except Exception as e:
             logger.error(f"Error loading language preference: {e}")
-            CURRENT_LANGUAGE = 'en'
+            translations.set_language('en')
 
     def _save_language_preference(self):
         """Save language preference to config file"""
@@ -304,13 +303,13 @@ class YouTubeDownloader:
                     config = json.load(f)
 
             # Update language
-            config['language'] = CURRENT_LANGUAGE
+            config['language'] = translations.get_language()
 
             # Save config
             with open(CONFIG_FILE, 'w') as f:
                 json.dump(config, f, indent=2)
 
-            logger.info(f"Saved language preference: {CURRENT_LANGUAGE}")
+            logger.info(f"Saved language preference: {translations.get_language()}")
         except Exception as e:
             logger.error(f"Error saving language preference: {e}")
 
@@ -525,11 +524,11 @@ class YouTubeDownloader:
 
             # Verify checksum
             if sha256_hash != expected_checksum:
-                # Delete the potentially compromised file
+                # Delete the potentially compromised file - best effort, continue to show error regardless
                 try:
                     Path(tmp_path).unlink()
-                except:
-                    pass
+                except OSError:
+                    pass  # Can't do anything if delete fails, continue to show security error
 
                 logger.error(f"Checksum verification failed! Expected: {expected_checksum}, Got: {sha256_hash}")
                 self.root.after(0, lambda: messagebox.showerror(
@@ -572,8 +571,6 @@ class YouTubeDownloader:
 
     def on_language_change(self, event=None):
         """Handle language selection change"""
-        global CURRENT_LANGUAGE
-
         selected = self.language_var.get()
         lang_map = {
             "🇬🇧 English": 'en',
@@ -583,8 +580,8 @@ class YouTubeDownloader:
 
         new_lang = lang_map.get(selected, 'en')
 
-        if new_lang != CURRENT_LANGUAGE:
-            CURRENT_LANGUAGE = new_lang
+        if new_lang != translations.get_language():
+            translations.set_language(new_lang)
             self._save_language_preference()
 
             # Show restart message
@@ -1129,7 +1126,7 @@ class YouTubeDownloader:
 
         # Set initial language based on loaded preference
         lang_map_reverse = {'en': 0, 'de': 1, 'pl': 2}
-        initial_index = lang_map_reverse.get(CURRENT_LANGUAGE, 0)
+        initial_index = lang_map_reverse.get(translations.get_language(), 0)
 
         self.language_var = tk.StringVar(value=language_options[initial_index])
         self.language_combo = ttk.Combobox(language_frame, textvariable=self.language_var,
